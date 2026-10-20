@@ -21,3 +21,10 @@ jobs:
           name: JavaToBedrock
           path: build/libs/JavaToBedrock.jar
           if-no-files-found: error
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t javatobedrock .
