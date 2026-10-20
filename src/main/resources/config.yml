@@ -80,6 +80,18 @@ features:
   # Envoie le skin Java du joueur au serveur Bedrock.
   java-skins: true
 
+# --- Skins des joueurs Bedrock vus par les joueurs Java -------------------------
+# Java n'affiche que les skins signés par Mojang. Le proxy réutilise la signature d'origine des
+# joueurs Java qui passent par lui, et peut faire signer les skins Bedrock (résultats mis en cache).
+skins:
+  enabled: true
+  # API publique GeyserMC : dernier skin connu d'un joueur Bedrock (par XUID, donc seulement sur
+  # les serveurs avec authentification Xbox). Gratuit, parfois pas à jour.
+  geyser-api: true
+  # Clé API MineSkin (https://account.mineskin.org/keys) pour signer n'importe quel skin Bedrock
+  # exact. Vide = désactivé.
+  mineskin-api-key: ""
+
 # --- Débogage ---------------------------------------------------------------------
 debug:
   # Journalise les paquets Bedrock / Java qui n'ont pas de traducteur.

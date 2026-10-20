@@ -51,6 +51,9 @@ public final class ProxyConfig {
     public record Features(boolean forms, boolean customBlocks, boolean customEntities, boolean javaSkins) {
     }
 
+    public record Skins(boolean enabled, boolean geyserApi, String mineskinApiKey) {
+    }
+
     public record Debug(boolean logUnhandledBedrock, boolean logUnhandledJava) {
     }
 
@@ -59,6 +62,7 @@ public final class ProxyConfig {
     private final ResourcePacks resourcePacks;
     private final World world;
     private final Features features;
+    private final Skins skins;
     private final Debug debug;
 
     private ProxyConfig(Section root) {
@@ -83,6 +87,9 @@ public final class ProxyConfig {
 
         Section f = root.section("features");
         this.features = new Features(f.bool("forms"), f.bool("custom-blocks"), f.bool("custom-entities"), f.bool("java-skins"));
+
+        Section s = root.section("skins");
+        this.skins = new Skins(s.bool("enabled"), s.bool("geyser-api"), s.string("mineskin-api-key"));
 
         Section d = root.section("debug");
         this.debug = new Debug(d.bool("log-unhandled-bedrock"), d.bool("log-unhandled-java"));
@@ -145,6 +152,10 @@ public final class ProxyConfig {
 
     public Features features() {
         return this.features;
+    }
+
+    public Skins skins() {
+        return this.skins;
     }
 
     public Debug debug() {

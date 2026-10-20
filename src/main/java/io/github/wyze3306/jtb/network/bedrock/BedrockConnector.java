@@ -4,6 +4,7 @@ import io.github.wyze3306.jtb.JavaToBedrock;
 import io.github.wyze3306.jtb.auth.LoginData;
 import io.github.wyze3306.jtb.skin.BedrockSkinData;
 import io.github.wyze3306.jtb.skin.JavaSkinProvider;
+import io.github.wyze3306.jtb.skin.SignedSkins;
 import io.github.wyze3306.jtb.config.ProxyConfig;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.netty.bootstrap.Bootstrap;
@@ -88,7 +89,7 @@ public final class BedrockConnector implements AutoCloseable {
     public void start(ProxySession session, InetSocketAddress target) {
         CompletableFuture<LoginData> identity = this.proxy.authProvider().login(session);
         CompletableFuture<BedrockSkinData> skin = JavaSkinProvider.forProfile(session.getProfile(),
-                this.proxy.config().features().javaSkins());
+                this.proxy.config().features().javaSkins(), this.proxy.service(SignedSkins.class));
         identity.thenCombine(skin, (loginData, skinData) -> {
             session.execute(() -> connect(session, target, loginData, skinData));
             return null;
