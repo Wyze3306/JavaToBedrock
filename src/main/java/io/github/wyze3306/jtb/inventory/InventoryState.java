@@ -401,6 +401,7 @@ public final class InventoryState implements SessionState {
     void onContainerOpen(ContainerOpenPacket packet) {
         int id = packet.getContainerID();
         ContainerType type = packet.getContainerType();
+        this.session.logger().debug("[{}] Bedrock container {} opened: {} at {}", this.session.getName(), id, type, packet.getPosition());
         if (type == ContainerType.INVENTORY) {
             if (packet.getTargetActorID() == -1 || this.session.get(PlayerState.KEY).isLocal(packet.getTargetActorID())) {
                 this.inventoryWindow = id;
@@ -545,6 +546,8 @@ public final class InventoryState implements SessionState {
 
     void onContainerClose(ContainerClosePacket packet) {
         int id = packet.getContainerID();
+        this.session.logger().debug("[{}] Bedrock container {} closed (server initiated: {})", this.session.getName(), id,
+                packet.isServerInitiatedClose());
         if (id == this.inventoryWindow) {
             this.inventoryWindow = -1;
             this.inventoryOpenRequested = false;

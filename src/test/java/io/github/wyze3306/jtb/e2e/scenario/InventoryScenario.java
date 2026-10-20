@@ -1,15 +1,7 @@
 package io.github.wyze3306.jtb.e2e.scenario;
 
-import io.github.wyze3306.jtb.e2e.ClientContext;
-import io.github.wyze3306.jtb.e2e.E2eScenario;
-import io.github.wyze3306.jtb.item.ItemMappings;
-import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.cloudburstmc.math.vector.Vector3i;
-import org.geysermc.mcprotocollib.network.packet.Packet;
-import org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction;
-import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ClickItemAction;
-import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerAction;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerActionType;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerType;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.DropItemAction;
@@ -18,25 +10,8 @@ import org.geysermc.mcprotocollib.protocol.data.game.inventory.MoveToHotbarActio
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ShiftClickItemAction;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.SpreadItemAction;
 import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.inventory.ClientboundContainerClosePacket;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.inventory.ClientboundContainerSetContentPacket;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.inventory.ClientboundContainerSetSlotPacket;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.inventory.ClientboundOpenScreenPacket;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.inventory.ClientboundSetCursorItemPacket;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.ServerboundChatCommandPacket;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.ServerboundClientTickEndPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.inventory.ServerboundContainerClickPacket;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.inventory.ServerboundContainerClosePacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.inventory.ServerboundSetCreativeModeSlotPacket;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.ServerboundUseItemOnPacket;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Inventories against PowerNukkitX (server-authoritative, {@code ItemStackRequest}). The tester must be
@@ -48,36 +23,9 @@ import java.util.regex.Pattern;
  * <p>
  * Each step checks the Java view after the server's answer (the proxy resynchronises every touched
  * slot from the confirmed mirror) and, at key points, the server's own count with
- * {@code /clear <player> <item> 0 0}. Run it for 90 s.
+ * {@code /clear <player> <item> 0 0}. Run it for 150 s.
  */
-public final class InventoryScenario implements E2eScenario {
-
-    private static final Pattern COUNT = Pattern.compile("(\\d+)");
-
-    /** One scripted step: an action, then how many ticks to wait before the next one. */
-    private record Step(String name, int delay, Runnable action) {
-    }
-
-    private final List<Step> steps = new ArrayList<>();
-    private int stepIndex;
-    private int nextStepTick = 60;
-
-    private final Map<Integer, ItemStack[]> containers = new HashMap<>();
-    private final Map<Integer, Integer> stateIds = new HashMap<>();
-    private volatile ItemStack cursor;
-    private volatile int openId = -1;
-    private volatile ContainerType openType;
-    private volatile int opens;
-    private volatile int serverCloses;
-    private volatile int playerContents;
-    private volatile int slotsBeforeContent;
-
-    private ClientContext context;
-    private String name = "Tester";
-    private int sequence;
-    private Vector3i table;
-    private Vector3i chest;
-    private int chatMark;
+public final class InventoryScenario extends InventoryScript {
 
     private final int log = id("oak_log");
     private final int cobblestone = id("cobblestone");
@@ -86,71 +34,14 @@ public final class InventoryScenario implements E2eScenario {
     private final int craftingTable = id("crafting_table");
     private final int diamond = id("diamond");
 
-    private static int id(String path) {
-        return ItemMappings.get().javaId(path);
-    }
-
-    // ------------------------------------------------------------------ packets (network thread)
+    private Vector3i table;
+    private Vector3i chest;
 
     @Override
-    public synchronized void onPacket(ClientContext context, Packet packet) {
-        if (packet instanceof ClientboundContainerSetContentPacket content) {
-            if (content.getContainerId() == 0) {
-                this.playerContents++;
-            }
-            this.containers.put(content.getContainerId(), Arrays.copyOf(content.getItems(), content.getItems().length));
-            this.stateIds.put(content.getContainerId(), content.getStateId());
-            this.cursor = content.getCarriedItem();
-        } else if (packet instanceof ClientboundContainerSetSlotPacket slot) {
-            if (slot.getContainerId() == -1 && slot.getSlot() == -1) {
-                this.cursor = slot.getItem();
-                return;
-            }
-            ItemStack[] items = this.containers.get(slot.getContainerId());
-            if (items == null && slot.getContainerId() == 0) {
-                this.slotsBeforeContent++;
-                items = new ItemStack[46];
-                this.containers.put(0, items);
-            }
-            if (items != null && slot.getSlot() >= 0 && slot.getSlot() < items.length) {
-                items[slot.getSlot()] = slot.getItem();
-            }
-            this.stateIds.put(slot.getContainerId(), slot.getStateId());
-        } else if (packet instanceof ClientboundSetCursorItemPacket cursorPacket) {
-            this.cursor = cursorPacket.getContents();
-        } else if (packet instanceof ClientboundOpenScreenPacket open) {
-            this.openId = open.getContainerId();
-            this.openType = open.getType();
-            this.opens++;
-            context.log("Open screen " + open.getContainerId() + " " + open.getType());
-        } else if (packet instanceof ClientboundContainerClosePacket close) {
-            if (close.getContainerId() == this.openId) {
-                this.serverCloses++;
-                this.openId = -1;
-            }
-        }
-    }
+    protected void script() {
+        this.table = this.feet.add(2, 0, 0);
+        this.chest = this.feet.add(0, 0, 2);
 
-    // ------------------------------------------------------------------ script
-
-    @Override
-    public void onJoined(ClientContext context) {
-        this.context = context;
-        String property = System.getProperty("name");
-        if (property != null) {
-            this.name = property;
-        }
-        Vector3i feet = Vector3i.from(Math.floor(context.x()), Math.floor(context.y()), Math.floor(context.z()));
-        this.table = feet.add(2, 0, 0);
-        this.chest = feet.add(0, 0, 2);
-
-        step("setup", 30, () -> {
-            // Room to breathe: the spawn point may be inside the terrain (no chunks without the world module).
-            command("fill " + (feet.getX() - 3) + " " + feet.getY() + " " + (feet.getZ() - 3) + " " + (feet.getX() + 3) + " "
-                    + (feet.getY() + 2) + " " + (feet.getZ() + 3) + " air");
-            command("gamemode survival " + this.name);
-            command("clear " + this.name);
-        });
         step("give", 30, () -> {
             command("give " + this.name + " oak_log 8");
             command("give " + this.name + " cobblestone 64");
@@ -236,7 +127,7 @@ public final class InventoryScenario implements E2eScenario {
         step("check shift craft", 1, () -> check("shift click crafts all (2 logs -> 8 planks, merged)",
                 is(0, 21, this.planks, 12) && empty(0, 1) && empty(0, 0) && is(0, 36, this.log, 1)));
         serverCount("oak_planks", 12);
-        step("close inventory", 10, () -> this.context.send(new ServerboundContainerClosePacket(0)));
+        step("close inventory", 10, this::close);
 
         // -------------------------------------------------------------- crafting table
         step("place table", 30, () -> command("setblock " + this.table.getX() + " " + this.table.getY() + " "
@@ -277,7 +168,7 @@ public final class InventoryScenario implements E2eScenario {
         step("leave one in grid", 2, () -> click(this.openId, 22, ContainerActionType.CLICK_ITEM, ClickItemAction.LEFT_CLICK));
         step("grid one", 2, () -> click(this.openId, 9, ContainerActionType.CLICK_ITEM, ClickItemAction.RIGHT_CLICK));
         step("grid rest back", 15, () -> click(this.openId, 22, ContainerActionType.CLICK_ITEM, ClickItemAction.LEFT_CLICK));
-        step("close table", 20, () -> this.context.send(new ServerboundContainerClosePacket(this.openId)));
+        step("close table", 20, this::close);
         step("check grid returned", 1, () -> check("closing returns the grid to the inventory",
                 total(0, 9, 45, this.planks) == 6));
         serverCount("oak_planks", 6);
@@ -300,7 +191,7 @@ public final class InventoryScenario implements E2eScenario {
         });
         step("place sticks", 15, () -> click(this.openId, 13, ContainerActionType.CLICK_ITEM, ClickItemAction.LEFT_CLICK));
         step("check sticks stored", 1, () -> check("sticks placed in chest slot 13", is(this.openId, 13, this.stick, 4)));
-        step("close chest", 20, () -> this.context.send(new ServerboundContainerClosePacket(this.openId)));
+        step("close chest", 20, this::close);
         serverCount("oak_planks", 0);
         step("reopen chest", 30, () -> use(this.chest));
         step("check chest content", 1, () -> check("chest kept the items (server content on reopen)",
@@ -308,7 +199,7 @@ public final class InventoryScenario implements E2eScenario {
         step("take back", 15, () -> click(this.openId, 0, ContainerActionType.SHIFT_CLICK_ITEM, ShiftClickItemAction.LEFT_CLICK));
         step("check take back", 1, () -> check("shift click takes the planks back", empty(this.openId, 0)
                 && total(this.openId, 27, 63, this.planks) == 6));
-        step("close chest 2", 20, () -> this.context.send(new ServerboundContainerClosePacket(this.openId)));
+        step("close chest 2", 20, this::close);
         serverCount("oak_planks", 6);
 
         // -------------------------------------------------------------- creative
@@ -319,141 +210,10 @@ public final class InventoryScenario implements E2eScenario {
         serverCount("diamond", 5);
         step("creative clear slot", 20, () -> this.context.send(new ServerboundSetCreativeModeSlotPacket((short) 40, null)));
         step("check creative clear", 1, () -> check("creative slot cleared", empty(0, 40)));
+        step("close creative inventory", 15, this::close);
+        step("check parked items", 1, () -> check("closing the creative inventory leaves no carried item", cursorEmpty()));
         step("survival", 30, () -> command("gamemode survival " + this.name));
         serverCount("diamond", 0);
         step("done", 1, () -> this.context.log("Inventory scenario finished"));
-    }
-
-    @Override
-    public void tick(ClientContext context, int tick) {
-        context.send(ServerboundClientTickEndPacket.INSTANCE);
-        if (tick >= this.nextStepTick && this.stepIndex < this.steps.size()) {
-            Step step = this.steps.get(this.stepIndex++);
-            try {
-                step.action().run();
-            } catch (RuntimeException e) {
-                check("step '" + step.name() + "' ran (" + e + ")", false);
-            }
-            this.nextStepTick = tick + step.delay();
-        }
-    }
-
-    @Override
-    public void finish(ClientContext context) {
-        context.check("every inventory step ran", this.stepIndex == this.steps.size());
-        dump(0);
-    }
-
-    // ------------------------------------------------------------------ helpers
-
-    private void step(String name, int delay, Runnable action) {
-        this.steps.add(new Step(name, delay, action));
-    }
-
-    /** Asks the server how many {@code item} the player has, and checks the answer. */
-    private void serverCount(String item, int expected) {
-        step("count " + item, 30, () -> {
-            this.chatMark = this.context.chat().size();
-            command("clear " + this.name + " " + item + " 0 0");
-        });
-        step("check count " + item, 1, () -> {
-            List<String> lines = this.context.chat().subList(this.chatMark, this.context.chat().size());
-            int count = expected == 0 ? -1 : -2;
-            for (String line : lines) {
-                if (line.contains(this.name)) {
-                    Matcher matcher = COUNT.matcher(line.substring(line.indexOf(this.name) + this.name.length()));
-                    count = matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
-                }
-            }
-            this.context.log("Server count of " + item + ": " + lines);
-            check("server has " + expected + " " + item, count == expected || (expected == 0 && count <= 0));
-        });
-    }
-
-    private void command(String command) {
-        this.context.send(new ServerboundChatCommandPacket(command));
-    }
-
-    private void use(Vector3i block) {
-        this.context.send(new ServerboundUseItemOnPacket(block, Direction.UP, Hand.MAIN_HAND, 0.5f, 1f, 0.5f, false, false,
-                ++this.sequence));
-    }
-
-    private synchronized void click(int containerId, int slot, ContainerActionType type, ContainerAction action) {
-        int stateId = this.stateIds.getOrDefault(containerId, 0);
-        this.context.send(new ServerboundContainerClickPacket(containerId, stateId, slot, type, action, null,
-                new Int2ObjectOpenHashMap<>()));
-    }
-
-    private void check(String name, boolean ok) {
-        this.context.check(name, ok);
-        if (!ok) {
-            dump(this.openId > 0 ? this.openId : 0);
-        }
-    }
-
-    private synchronized ItemStack item(int containerId, int slot) {
-        ItemStack[] items = this.containers.get(containerId);
-        return items == null || slot < 0 || slot >= items.length ? null : items[slot];
-    }
-
-    private synchronized int size(int containerId) {
-        ItemStack[] items = this.containers.get(containerId);
-        return items == null ? -1 : items.length;
-    }
-
-    private boolean is(int containerId, int slot, int id, int amount) {
-        ItemStack item = item(containerId, slot);
-        return item != null && item.getId() == id && item.getAmount() == amount;
-    }
-
-    private boolean empty(int containerId, int slot) {
-        ItemStack item = item(containerId, slot);
-        return item == null || item.getAmount() <= 0;
-    }
-
-    private boolean cursorEmpty() {
-        ItemStack item = this.cursor;
-        return item == null || item.getAmount() <= 0;
-    }
-
-    private static int count(ItemStack item, int id) {
-        return item != null && item.getId() == id ? item.getAmount() : 0;
-    }
-
-    private int total(int containerId, int from, int to, int id) {
-        int total = 0;
-        for (int slot = from; slot < to; slot++) {
-            total += count(item(containerId, slot), id);
-        }
-        return total;
-    }
-
-    private int find(int containerId, int from, int to, int id) {
-        for (int slot = from; slot < to; slot++) {
-            if (count(item(containerId, slot), id) > 0) {
-                return slot;
-            }
-        }
-        return -1;
-    }
-
-    private synchronized void dump(int containerId) {
-        ItemStack[] items = this.containers.get(containerId);
-        StringBuilder text = new StringBuilder("Container ").append(containerId).append(':');
-        if (items != null) {
-            for (int slot = 0; slot < items.length; slot++) {
-                if (items[slot] != null && items[slot].getAmount() > 0) {
-                    text.append(' ').append(slot).append('=').append(ItemMappings.get().javaItem(items[slot].getId()).key().value())
-                            .append('x').append(items[slot].getAmount());
-                }
-            }
-        }
-        ItemStack carried = this.cursor;
-        if (carried != null && carried.getAmount() > 0) {
-            text.append(" cursor=").append(ItemMappings.get().javaItem(carried.getId()).key().value()).append('x')
-                    .append(carried.getAmount());
-        }
-        this.context.log(text.toString());
     }
 }
