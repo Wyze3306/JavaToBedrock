@@ -43,6 +43,17 @@ bedrock:
   # Suivre les transferts du serveur Bedrock (TransferPacket, ex. lobby -> mini-jeu) :
   # le joueur Java change de serveur sans être déconnecté.
   follow-transfers: true
+  # Salle d'attente : si le serveur Bedrock s'arrête, redémarre ou ne répond plus, les joueurs Java
+  # restent connectés (écran de configuration avec un message) et rejoignent automatiquement le
+  # serveur dès son retour. Les expulsions et bannissements déconnectent normalement.
+  reconnect:
+    # Attente maximale en secondes (0 = déconnecter tout de suite).
+    timeout: 300
+    # Messages de déconnexion Bedrock qui annoncent un arrêt du serveur (en plus de la raison
+    # « shutdown » du protocole). PowerNukkitX envoie misc-settings.shutdownMessage ("Server closed").
+    shutdown-messages:
+      - "Server closed"
+      - "disconnectionScreen.serverShutdown"
 
 # --- Packs de ressources ------------------------------------------------------
 resource-packs:

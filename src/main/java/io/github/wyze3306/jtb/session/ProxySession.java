@@ -263,10 +263,21 @@ public final class ProxySession {
      * configuration phase and connects to {@code target}. Must run on the event loop.
      */
     public void switchServer(InetSocketAddress target) {
+        LOGGER.info("[{}] Switching to Bedrock server {}:{}", getName(), target.getHostString(), target.getPort());
+        detachBedrock("Transferred");
+        this.proxy.bedrockConnector().start(this, target);
+    }
+
+    /**
+     * Leaves the current Bedrock server while keeping the Java player: closes the Bedrock connection
+     * and every state describing its world, and sends the Java client back to the configuration
+     * phase (when in game) to wait for the next server's StartGame.
+     */
+    public void detachBedrock(String reason) {
         BedrockClientSession old = this.bedrockSession;
         this.bedrockSession = null;
         if (old != null && old.isConnected()) {
-            old.disconnect("Transferred");
+            old.disconnect(reason);
         }
         for (int i = 0; i < this.states.length; i++) {
             Object state = this.states[i];
@@ -283,9 +294,7 @@ public final class ProxySession {
             this.tickTask.cancel(false);
             this.tickTask = null;
         }
-        LOGGER.info("[{}] Switching to Bedrock server {}:{}", getName(), target.getHostString(), target.getPort());
         get(io.github.wyze3306.jtb.network.java.JavaConfiguration.KEY).startServerSwitch();
-        this.proxy.bedrockConnector().start(this, target);
     }
 
     /**

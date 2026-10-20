@@ -60,7 +60,11 @@ final class BedrockPacketDispatcher implements BedrockPacketHandler {
             return;
         }
         if (packet instanceof DisconnectPacket disconnect) {
-            this.session.disconnect(BedrockDisconnects.message(this.session, disconnect));
+            Component reason = BedrockDisconnects.message(this.session, disconnect);
+            BedrockReconnect reconnect = this.session.get(BedrockReconnect.KEY);
+            if (!reconnect.isShutdown(disconnect) || !reconnect.onConnectionLost(reason)) {
+                this.session.disconnect(reason);
+            }
             return;
         }
         if (packet instanceof TransferPacket transfer) {
@@ -93,7 +97,10 @@ final class BedrockPacketDispatcher implements BedrockPacketHandler {
                 return;
             }
             if (!this.session.isClosed()) {
-                this.session.disconnect(BedrockDisconnects.message(this.session, reason));
+                Component message = BedrockDisconnects.message(this.session, reason);
+                if (!this.session.get(BedrockReconnect.KEY).onConnectionLost(message)) {
+                    this.session.disconnect(message);
+                }
             }
         });
     }

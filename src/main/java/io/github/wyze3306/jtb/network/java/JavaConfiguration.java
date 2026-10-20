@@ -1,6 +1,7 @@
 package io.github.wyze3306.jtb.network.java;
 
 import io.github.wyze3306.jtb.JavaToBedrock;
+import io.github.wyze3306.jtb.network.bedrock.BedrockReconnect;
 import io.github.wyze3306.jtb.mapping.JavaRegistries;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
@@ -60,6 +61,7 @@ public final class JavaConfiguration implements SessionState {
     private final Set<UUID> pendingPacks = new HashSet<>();
     private final Map<UUID, Boolean> requiredPacks = new HashMap<>();
     private final List<Runnable> gameStartListeners = new ArrayList<>();
+    private final List<Runnable> configurationListeners = new ArrayList<>();
     private @Nullable ServerboundClientInformationPacket clientInformation;
     private boolean knownPacksAnswered;
     private boolean clientKnowsVanilla;
@@ -89,7 +91,7 @@ public final class JavaConfiguration implements SessionState {
             this.readyTimeout.cancel(false);
         }
         this.readyTimeout = this.session.schedule(() -> {
-            if (!this.bedrockReady) {
+            if (!this.bedrockReady && !this.session.get(BedrockReconnect.KEY).isWaiting()) {
                 // Without StartGame there is no Java login packet to send: the client cannot play.
                 this.session.logger().warn("[{}] Bedrock server did not start the game within {}s",
                         this.session.getName(), BEDROCK_READY_TIMEOUT_SECONDS);
@@ -211,6 +213,7 @@ public final class JavaConfiguration implements SessionState {
         if (this.readyTimeout != null) {
             this.readyTimeout.cancel(false);
         }
+        this.session.get(BedrockReconnect.KEY).onBedrockReady();
         tryFinish();
     }
 
@@ -300,7 +303,25 @@ public final class JavaConfiguration implements SessionState {
     void onReconfigurationAcknowledged() {
         this.reconfigurationAcknowledged = true;
         this.session.get(JavaKeepAlive.KEY).setPaused(false);
+        List<Runnable> listeners = List.copyOf(this.configurationListeners);
+        this.configurationListeners.clear();
+        for (Runnable listener : listeners) {
+            listener.run();
+        }
         tryFinish();
+    }
+
+    /**
+     * Runs {@code task} as soon as configuration-phase packets (dialogs...) can be sent: now during
+     * the first configuration or an acknowledged reconfiguration, otherwise once the client
+     * acknowledges the reconfiguration.
+     */
+    public void whenConfiguring(Runnable task) {
+        if (isConfiguring() && (!this.reconfiguring || this.reconfigurationAcknowledged)) {
+            task.run();
+        } else {
+            this.configurationListeners.add(task);
+        }
     }
 
     private static byte[] encodeString(String value) {

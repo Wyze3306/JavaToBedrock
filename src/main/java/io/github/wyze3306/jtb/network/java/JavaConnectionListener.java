@@ -1,6 +1,7 @@
 package io.github.wyze3306.jtb.network.java;
 
 import io.github.wyze3306.jtb.JavaToBedrock;
+import io.github.wyze3306.jtb.network.bedrock.BedrockReconnect;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.netty.channel.EventLoop;
 import net.kyori.adventure.text.Component;
@@ -18,6 +19,7 @@ import org.geysermc.mcprotocollib.protocol.MinecraftConstants;
 import org.geysermc.mcprotocollib.protocol.MinecraftProtocol;
 import org.geysermc.mcprotocollib.protocol.data.ProtocolState;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundClientInformationPacket;
+import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundCustomClickActionPacket;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundCustomPayloadPacket;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundKeepAlivePacket;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundResourcePackPacket;
@@ -251,6 +253,9 @@ final class JavaConnectionListener extends SessionAdapter {
                 configuration.onResourcePackStatus(resourcePack.getId(), resourcePack.getStatus());
             } else if (packet instanceof ServerboundCustomPayloadPacket payload) {
                 proxySession.get(JavaChannels.KEY).onCustomPayload(payload);
+            } else if (packet instanceof ServerboundCustomClickActionPacket click
+                    && click.getId().equals(BedrockReconnect.LEAVE_ACTION)) {
+                proxySession.disconnect(Component.text("Vous avez quitté la salle d'attente."));
             } else if (packet instanceof ServerboundFinishConfigurationPacket) {
                 protocol.setOutboundState(ProtocolState.GAME);
                 session.switchInboundState(() -> protocol.setInboundState(ProtocolState.GAME));

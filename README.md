@@ -76,6 +76,24 @@ avec sa propre clé ; PowerNukkitX vérifie la signature et la liaison à la cl�
 3. Les plugins peuvent reconnaître ces joueurs : `player.isJavaEditionPlayer()` et
    `player.getJavaIdentity()` (UUID et pseudo du compte Java). Leur UUID PNX est leur UUID Java.
 
+## Salle d'attente (redémarrages du serveur Bedrock)
+
+Quand le serveur Bedrock s'arrête, redémarre ou plante, les joueurs Java **ne sont pas déconnectés** :
+ils patientent sur l'écran de chargement avec un message (et un bouton pour partir), puis rejoignent
+le monde automatiquement dès que le serveur répond à nouveau. Un arrêt propre de PowerNukkitX est
+détecté immédiatement, un plantage en 15 secondes. Les expulsions et bannissements déconnectent
+normalement. Réglages : `bedrock.reconnect` (`timeout: 0` pour désactiver).
+
+## Skins
+
+- Les joueurs Bedrock voient le skin Mojang (et la cape) des joueurs Java.
+- Les joueurs Java voient le skin des joueurs Bedrock : Java n'affichant que des skins signés par
+  Mojang, le proxy réutilise la signature d'origine des joueurs Java qui passent par lui, interroge
+  l'API publique GeyserMC (joueurs Xbox) et, avec une clé [MineSkin](https://account.mineskin.org/keys)
+  (`skins.mineskin-api-key`), fait signer n'importe quel skin. Chaque skin n'est signé qu'une fois (cache).
+- Avec les mods *ViaBedrockUtility* ou *BedrockSkinUtility* côté Java, les skins Bedrock complets
+  (géométrie custom, capes) sont affichés.
+
 ## Packs de ressources
 
 Les packs Bedrock du serveur sont téléchargés (en morceaux ou via CDN, packs chiffrés compris),
