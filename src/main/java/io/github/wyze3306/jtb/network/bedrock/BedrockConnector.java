@@ -46,10 +46,16 @@ public final class BedrockConnector implements AutoCloseable {
 
     private final JavaToBedrock proxy;
     private final EventLoopGroup group;
+    private final BedrockServers servers;
 
     public BedrockConnector(JavaToBedrock proxy) {
         this.proxy = proxy;
+        this.servers = new BedrockServers(proxy.config().bedrock());
         this.group = new MultiThreadIoEventLoopGroup(0, new DefaultThreadFactory("jtb-bedrock", true), NioIoHandler.newFactory());
+    }
+
+    public BedrockServers servers() {
+        return this.servers;
     }
 
     public static BedrockCodec defaultCodec() {
@@ -61,11 +67,11 @@ public final class BedrockConnector implements AutoCloseable {
     }
 
     /**
-     * The codec to use for the configured server: the default one, adjusted to the protocol number
-     * the server advertises in its ping when it differs only by that number.
+     * The codec to use for {@code server}: the default one, adjusted to the protocol number the server
+     * advertises in its ping when it differs only by that number.
      */
-    public BedrockCodec codecForServer() {
-        BedrockPinger.Status status = this.proxy.pinger().status();
+    public BedrockCodec codecForServer(InetSocketAddress server) {
+        BedrockPinger.Status status = this.proxy.pinger().status(server);
         if (status != null && status.protocolVersion() > 0 && status.protocolVersion() != DEFAULT_CODEC.getProtocolVersion()) {
             BedrockCodec known = BedrockCodecs.byProtocol(status.protocolVersion());
             if (known != null) {
@@ -81,8 +87,7 @@ public final class BedrockConnector implements AutoCloseable {
      * connection exists so a slow sign-in (Microsoft device code) cannot time the connection out.
      */
     public void start(ProxySession session) {
-        ProxyConfig.Bedrock config = this.proxy.config().bedrock();
-        start(session, new InetSocketAddress(config.address(), config.port()));
+        start(session, this.servers.forJavaHost(session.getJavaHost()).address());
     }
 
     /** Same as {@link #start(ProxySession)} with an explicit server (Bedrock transfers). */
@@ -119,7 +124,7 @@ public final class BedrockConnector implements AutoCloseable {
             return;
         }
         ProxyConfig.Bedrock config = this.proxy.config().bedrock();
-        BedrockCodec codec = codecForServer();
+        BedrockCodec codec = codecForServer(address);
 
         Bootstrap bootstrap = new Bootstrap()
                 .group(this.group)

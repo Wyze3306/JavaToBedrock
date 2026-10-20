@@ -76,6 +76,25 @@ avec sa propre clé ; PowerNukkitX vérifie la signature et la liaison à la cl�
 3. Les plugins peuvent reconnaître ces joueurs : `player.isJavaEditionPlayer()` et
    `player.getJavaIdentity()` (UUID et pseudo du compte Java). Leur UUID PNX est leur UUID Java.
 
+## Plusieurs serveurs Bedrock
+
+Un seul proxy peut servir tout un réseau : `bedrock.servers` déclare des serveurs nommés et
+`bedrock.forced-hosts` choisit le serveur selon l'adresse tapée par le joueur Java
+(`survie.example.org` → serveur `survie`) ; la liste des serveurs Java affiche alors le MOTD et le
+nombre de joueurs du bon serveur. Les transferts Bedrock (`TransferPacket`, ex. WaterdogPE ou un
+plugin de lobby) sont suivis sans déconnexion.
+
+```yaml
+bedrock:
+  address: 127.0.0.1      # serveur par défaut
+  port: 19132
+  servers:
+    survie: 127.0.0.1:19133
+    creatif: 10.0.0.5:19132
+  forced-hosts:
+    survie.example.org: survie
+```
+
 ## Salle d'attente (redémarrages du serveur Bedrock)
 
 Quand le serveur Bedrock s'arrête, redémarre ou plante, les joueurs Java **ne sont pas déconnectés** :

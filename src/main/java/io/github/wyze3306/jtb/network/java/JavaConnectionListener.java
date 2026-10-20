@@ -143,7 +143,8 @@ final class JavaConnectionListener extends SessionAdapter {
 
     private void handleStatus(Session session, Packet packet) {
         if (packet instanceof ServerboundStatusRequestPacket) {
-            session.send(new ClientboundStatusResponsePacket(this.proxy.pinger().buildJavaStatus()));
+            String host = session.getFlag(JavaFlags.HANDSHAKE_HOST);
+            session.send(new ClientboundStatusResponsePacket(this.proxy.pinger().buildJavaStatus(host)));
         } else if (packet instanceof ServerboundPingRequestPacket ping) {
             session.send(new ClientboundPongResponsePacket(ping.getPingTime()));
             session.disconnect(Component.translatable("multiplayer.status.request_handled"));

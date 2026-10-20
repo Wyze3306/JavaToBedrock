@@ -50,4 +50,21 @@ class ProxyConfigTest {
         assertEquals(false, config.java().onlineMode());
         assertEquals(ProxyConfig.AuthMode.OFFLINE, config.bedrock().auth());
     }
+
+    @Test
+    void listsAndMapsFromFileAndEnvironment(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("config.yml");
+        Files.writeString(file, "bedrock:\n  servers:\n    lobby: 127.0.0.1:19133\n  forced-hosts:\n    lobby.example.org: lobby\n");
+        ProxyConfig config = ProxyConfig.load(file, name -> null);
+        assertEquals(Map.of("lobby", "127.0.0.1:19133"), config.bedrock().servers());
+        assertEquals(Map.of("lobby.example.org", "lobby"), config.bedrock().forcedHosts());
+        assertTrue(config.bedrock().reconnect().shutdownMessages().contains("Server closed"));
+
+        Map<String, String> env = Map.of("JTB_BEDROCK_SERVERS", "a=1.2.3.4:19132, b=5.6.7.8",
+                "JTB_BEDROCK_RECONNECT_SHUTDOWN_MESSAGES", "Bye, Restarting", "JTB_BEDROCK_RECONNECT_TIMEOUT", "0");
+        ProxyConfig fromEnv = ProxyConfig.load(file, env::get);
+        assertEquals(Map.of("a", "1.2.3.4:19132", "b", "5.6.7.8"), fromEnv.bedrock().servers());
+        assertEquals(java.util.List.of("Bye", "Restarting"), fromEnv.bedrock().reconnect().shutdownMessages());
+        assertEquals(0, fromEnv.bedrock().reconnect().timeoutSeconds());
+    }
 }

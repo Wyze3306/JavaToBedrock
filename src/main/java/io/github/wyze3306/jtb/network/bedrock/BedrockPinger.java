@@ -29,11 +29,14 @@ import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Pings the Bedrock server every few seconds (RakNet unconnected ping) and keeps the latest answer,
- * so the Java server list mirrors its MOTD, player count and version without connecting.
+ * Pings every Bedrock server behind the proxy every few seconds (RakNet unconnected ping) and keeps
+ * the latest answers, so the Java server list mirrors the MOTD, player count and version of the
+ * server the player would join, without connecting.
  */
 public final class BedrockPinger implements AutoCloseable {
 
@@ -50,7 +53,7 @@ public final class BedrockPinger implements AutoCloseable {
     }
 
     private final JavaToBedrock proxy;
-    private volatile @Nullable Status status;
+    private final Map<InetSocketAddress, Status> statuses = new ConcurrentHashMap<>();
     private @Nullable Channel channel;
     private @Nullable ScheduledFuture<?> task;
     private byte @Nullable [] icon;
@@ -76,7 +79,7 @@ public final class BedrockPinger implements AutoCloseable {
                     public void channelRead(ChannelHandlerContext ctx, Object msg) {
                         try {
                             if (msg instanceof RakPong pong) {
-                                onPong(BedrockPong.fromRakNet(pong.getPongData()));
+                                onPong(pong.getSender(), BedrockPong.fromRakNet(pong.getPongData()));
                             }
                         } catch (Exception e) {
                             LOGGER.debug("Invalid Bedrock pong", e);
@@ -91,33 +94,39 @@ public final class BedrockPinger implements AutoCloseable {
 
     private void ping() {
         Channel channel = this.channel;
-        if (channel == null || !channel.isActive()) {
+        // isOpen, not isActive: a RakNet client channel only becomes active once connected, and this
+        // one only sends unconnected pings.
+        if (channel == null || !channel.isOpen()) {
             return;
         }
-        ProxyConfig.Bedrock config = this.proxy.config().bedrock();
-        InetSocketAddress address = new InetSocketAddress(config.address(), config.port());
-        if (address.isUnresolved()) {
-            return;
+        for (BedrockServers.Target target : this.proxy.bedrockConnector().servers().all()) {
+            InetSocketAddress address = target.address();
+            if (!address.isUnresolved()) {
+                channel.writeAndFlush(new RakPing(System.currentTimeMillis(), address));
+            }
         }
-        channel.writeAndFlush(new RakPing(System.currentTimeMillis(), address));
     }
 
-    private void onPong(BedrockPong pong) {
-        Status previous = this.status;
+    private void onPong(InetSocketAddress server, BedrockPong pong) {
         Status status = new Status(nullToEmpty(pong.motd()), nullToEmpty(pong.subMotd()), pong.protocolVersion(),
                 nullToEmpty(pong.version()), Math.max(0, pong.playerCount()), Math.max(0, pong.maximumPlayerCount()),
                 System.currentTimeMillis());
-        this.status = status;
-        if (previous == null) {
-            LOGGER.info("Bedrock server online: \"{}\" ({} protocol {}, {}/{} players)",
-                    BedrockText.stripFormatting(status.motd()), status.version(), status.protocolVersion(),
-                    status.online(), status.max());
+        Status previous = this.statuses.put(server, status);
+        if (previous == null || status.receivedAt() - previous.receivedAt() > STALE_MILLIS) {
+            LOGGER.info("Bedrock server {}:{} online: \"{}\" ({} protocol {}, {}/{} players)",
+                    server.getHostString(), server.getPort(), BedrockText.stripFormatting(status.motd()),
+                    status.version(), status.protocolVersion(), status.online(), status.max());
         }
     }
 
-    /** The last answer, or null when the server never answered or stopped answering. */
+    /** The last answer of the default server, or null when it never answered or stopped answering. */
     public @Nullable Status status() {
-        Status status = this.status;
+        return status(this.proxy.bedrockConnector().servers().defaultTarget().address());
+    }
+
+    /** The last answer of {@code server}, or null when it never answered or stopped answering. */
+    public @Nullable Status status(InetSocketAddress server) {
+        Status status = this.statuses.get(server);
         if (status == null || System.currentTimeMillis() - status.receivedAt() > STALE_MILLIS) {
             return null;
         }
@@ -125,11 +134,12 @@ public final class BedrockPinger implements AutoCloseable {
     }
 
     /**
-     * Builds the Java server list entry from the configuration and the last Bedrock pong.
+     * Builds the Java server list entry from the configuration and the last pong of the server a
+     * player typing {@code host} would join.
      */
-    public ServerStatusInfo buildJavaStatus() {
+    public ServerStatusInfo buildJavaStatus(@Nullable String host) {
         ProxyConfig.Java config = this.proxy.config().java();
-        Status status = status();
+        Status status = status(this.proxy.bedrockConnector().servers().forJavaHost(host).address());
         Component description;
         if (!config.motd().isEmpty()) {
             description = BedrockText.legacyToComponent(config.motd().replace("\\n", "\n"));
@@ -149,7 +159,7 @@ public final class BedrockPinger implements AutoCloseable {
             }
         }
         if (max < 0) {
-            max = 0;
+            max = online;
         }
         return new ServerStatusInfo(description, new PlayerInfo(max, online, List.of()),
                 new VersionInfo(JavaServer.javaVersionName(), JavaServer.javaProtocolVersion()), this.icon, false);

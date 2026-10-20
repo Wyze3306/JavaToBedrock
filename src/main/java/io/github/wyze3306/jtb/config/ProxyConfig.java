@@ -10,6 +10,7 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -39,7 +40,8 @@ public final class ProxyConfig {
     }
 
     public record Bedrock(String address, int port, AuthMode auth, String trustedKeyFile, String usernamePrefix,
-                          int connectTimeoutSeconds, String defaultLanguage, boolean followTransfers, Reconnect reconnect) {
+                          int connectTimeoutSeconds, String defaultLanguage, boolean followTransfers, Reconnect reconnect,
+                          Map<String, String> servers, Map<String, String> forcedHosts) {
     }
 
     /** The waiting room used while the Bedrock server is down. */
@@ -80,7 +82,8 @@ public final class ProxyConfig {
                 AuthMode.valueOf(b.string("auth").toUpperCase(Locale.ROOT)), b.string("trusted-key-file"),
                 b.string("username-prefix"), b.integer("connect-timeout"), b.string("default-language"),
                 b.bool("follow-transfers"),
-                new Reconnect(b.section("reconnect").integer("timeout"), b.section("reconnect").strings("shutdown-messages")));
+                new Reconnect(b.section("reconnect").integer("timeout"), b.section("reconnect").strings("shutdown-messages")),
+                b.stringMap("servers"), b.stringMap("forced-hosts"));
 
         Section r = root.section("resource-packs");
         this.resourcePacks = new ResourcePacks(r.bool("enabled"), r.string("http-bind"), r.integer("http-port"),
@@ -238,6 +241,25 @@ public final class ProxyConfig {
             }
             String text = value.toString().trim();
             return text.isEmpty() ? List.of() : List.of(text.split("\\s*,\\s*"));
+        }
+
+        /** A mapping of strings; an environment variable gives it as {@code key=value,key=value}. */
+        Map<String, String> stringMap(String key) {
+            Object value = raw(key);
+            Map<String, String> map = new LinkedHashMap<>();
+            if (value instanceof Map<?, ?> yaml) {
+                yaml.forEach((k, v) -> map.put(String.valueOf(k), String.valueOf(v)));
+                return map;
+            }
+            for (String entry : value.toString().split(",")) {
+                int equals = entry.indexOf('=');
+                if (equals > 0) {
+                    map.put(entry.substring(0, equals).trim(), entry.substring(equals + 1).trim());
+                } else if (!entry.isBlank()) {
+                    throw new IllegalArgumentException("Configuration value " + this.path + key + " must be key=value pairs");
+                }
+            }
+            return map;
         }
 
         boolean bool(String key) {

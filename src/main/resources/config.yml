@@ -21,8 +21,18 @@ java:
 
 # --- Côté Bedrock : le serveur cible ------------------------------------------
 bedrock:
+  # Serveur Bedrock par défaut.
   address: 127.0.0.1
   port: 19132
+  # Autres serveurs Bedrock derrière ce proxy (facultatif) : nom -> adresse[:port].
+  # Les joueurs Java en changent avec /jtb server <nom>.
+  servers: {}
+  #  lobby: 127.0.0.1:19133
+  #  survie: survie.local:19134
+  # Serveur choisi selon l'adresse tapée par le joueur Java (facultatif) : hôte -> nom de serveur
+  # ("default" = le serveur par défaut). Le MOTD affiché est celui de ce serveur.
+  forced-hosts: {}
+  #  survie.example.org: survie
   # Méthode d'authentification auprès du serveur Bedrock :
   #   offline   : identité auto-signée (le serveur doit avoir xbox-auth=false)
   #   microsoft : chaque joueur Java se connecte une fois à son compte Microsoft
