@@ -3,6 +3,7 @@ package io.github.wyze3306.jtb.item;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
 import io.github.wyze3306.jtb.session.StateKey;
+import io.github.wyze3306.jtb.text.BedrockLang;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -13,12 +14,15 @@ import org.cloudburstmc.protocol.common.SimpleDefinitionRegistry;
 import org.jspecify.annotations.Nullable;
 
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * The server's item registry (vanilla and custom items with their runtime ids and components), as
  * sent in {@code ItemRegistryPacket}. Also installed in the codec so item stacks can be decoded.
+ * <p>
+ * Also keeps the Java form of the server's custom items ({@link #customItem}).
  */
 public final class ItemRegistry implements SessionState {
 
@@ -26,10 +30,13 @@ public final class ItemRegistry implements SessionState {
 
     private final Int2ObjectMap<ItemDefinition> byRuntimeId = new Int2ObjectOpenHashMap<>();
     private final Map<String, ItemDefinition> byIdentifier = new HashMap<>();
+    private final Map<ItemDefinition, CustomItems.CustomItem> customItems = new IdentityHashMap<>();
+    private final ProxySession session;
     private DefinitionRegistry<ItemDefinition> codecRegistry = SimpleDefinitionRegistry.<ItemDefinition>builder()
             .add(ItemDefinition.AIR).build();
 
     private ItemRegistry(ProxySession session) {
+        this.session = session;
         this.byRuntimeId.put(0, ItemDefinition.AIR);
         this.byIdentifier.put(ItemDefinition.AIR.getIdentifier(), ItemDefinition.AIR);
     }
@@ -65,6 +72,7 @@ public final class ItemRegistry implements SessionState {
     public void load(List<ItemDefinition> definitions, DefinitionRegistry<ItemDefinition> codecRegistry) {
         this.byRuntimeId.clear();
         this.byIdentifier.clear();
+        this.customItems.clear();
         for (ItemDefinition definition : definitions) {
             if (this.byRuntimeId.putIfAbsent(definition.getRuntimeId(), definition) == null) {
                 this.byIdentifier.putIfAbsent(definition.getIdentifier(), definition);
@@ -89,5 +97,18 @@ public final class ItemRegistry implements SessionState {
 
     public Map<String, ItemDefinition> definitions() {
         return this.byIdentifier;
+    }
+
+    /**
+     * The Java form of a custom (non vanilla) item, built from its server definition on first use. The
+     * name is resolved in the player's language at that moment.
+     */
+    public CustomItems.CustomItem customItem(ItemDefinition definition) {
+        CustomItems.CustomItem item = this.customItems.get(definition);
+        if (item == null) {
+            item = CustomItems.build(definition, BedrockLang.forJavaLocale(this.session.getLocale()));
+            this.customItems.put(definition, item);
+        }
+        return item;
     }
 }
