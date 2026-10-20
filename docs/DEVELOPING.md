@@ -33,7 +33,7 @@ tools/e2e/run.sh path/to/powernukkitx.jar world 40
 ```
 
 Scenarios (`foo_bar` = `FooBarScenario`): `default`, `world`, `world_travel`, `player`, `entity`,
-`chat`, `form`, `ui`, `sound`, `resource_pack`, `inventory`... Some need server-side helpers: `form`/`ui`
+`chat`, `form`, `ui`, `sound`, `resource_pack`, `inventory`, `item_frame`... Some need server-side helpers: `form`/`ui`
 use the test plugin in `src/test/pnx-plugin`, `resource_pack` packs in the server's `resource_packs/`,
 `reconnect` a server restart during the run, `server_switch` a second server
 (`JTB_BEDROCK_SERVERS=bis=host:port`), `peers` a second client named `Load1`.
@@ -69,11 +69,12 @@ use the test plugin in `src/test/pnx-plugin`, `resource_pack` packs in the serve
 | Class | Owner | Used by |
 |---|---|---|
 | `block.BlockMapper` | block | world, player, entity, inventory |
-| `world.WorldState` | world | player, sound |
+| `world.WorldState`, `world.ItemFrame` (`itemFrame(javaEntityId)`: item frame entities) | world | player, sound |
 | `player.PlayerState` | player | entity (local player hooks), world, inventory |
-| `entity.EntityTracker` | entity | player, ui, sound |
+| `player.BlockBreaking` (`isDigging`, `onServerCrack`) | player | sound |
+| `entity.EntityTracker` | entity | player, ui, sound, world (item frames: `allocateJavaId`, and the `EntityDefinitions` data layouts) |
 | `inventory.InventoryState` | inventory | player |
-| `item.ItemTranslator`, `item.ItemRegistry` | inventory | entity (equipment, item entities), ui |
+| `item.ItemTranslator`, `item.ItemRegistry` | inventory | entity (equipment, item entities), ui, world (item frames) |
 | `text.TextTranslator`, `text.BedrockLang` | chat | all |
 | `network.java.JavaConfiguration` | core | world (registries, ready), resourcepack |
 | `network.java.JavaChannels` (client mod channels) | core | entity, skin |
@@ -84,6 +85,32 @@ use the test plugin in `src/test/pnx-plugin`, `resource_pack` packs in the serve
 
 The join translator (world) calls, in order: `BlockMapper.onStartGame`, `EntityTracker.onStartGame`,
 `PlayerState.onStartGame`, then builds the Java login packet.
+
+## Item frames (world, player)
+
+Bedrock item frames are blocks (`minecraft:frame`, `minecraft:glow_frame`, `facing_direction` 0-5) with a block
+entity (`Item`, `ItemRotation`); Java item frames are entities. The block shows as air (water when waterlogged).
+
+- **Display (world).** `BlockMapper.itemFrame(runtimeId)` tells frame blocks apart (facing, glow bit) on any
+  thread. The chunk pipeline finds them while decoding (layer 0 palettes) and keeps them per column; once the
+  column is sent, `world.ItemFrames` spawns an `item_frame` / `glow_item_frame` at the block (AddEntity data and
+  `DIRECTION` = the facing, `ITEM` = `ItemTranslator.toJava` of the block entity's item, filled maps included,
+  `ROTATION` = `ItemRotation`: degrees in a float on Bedrock, the 0-7 step in a byte on PowerNukkitX). Block
+  changes spawn, replace or remove entities, block entity updates send the entity data that changed, a
+  forgotten chunk removes its frames; dimension changes and server switches only forget them (the Java client
+  dropped its entities). Java ids come from `EntityTracker.allocateJavaId()`.
+- **Interactions (player).** `ServerboundAttack`, `ServerboundInteract` and `ServerboundPickItemFromEntity` on an
+  id for which `WorldState.itemFrame(id)` is not null act on the block, like a Bedrock client: attack =
+  `START_DESTROY_BLOCK` on the frame's face (PowerNukkitX treats it as a left click: the item drops, or vanishes
+  in creative) then `ABORT` while the frame holds an item; an empty frame is broken (`START + PREDICT` in
+  creative, else a dig the proxy holds for the break time the server's `BLOCK_START_BREAK` announces, 8 ticks
+  until it does). Use = the click on the block's front face (`START_ITEM_USE_ON`, `ItemUse(PLACE)` with the held
+  item and the hit point as click position, `STOP_ITEM_USE_ON`), predicted `FAILURE` so it never places the held
+  block. Pick = `BlockPickRequest` at the frame. PowerNukkitX ignores `ItemFrameDropItemPacket`.
+- **Sounds.** The server's `SOUND_ITEMFRAME_*` level events map to the Java `entity.item_frame.*` sounds.
+- **Limitations.** A frame placed with `/setblock` has no block entity on PowerNukkitX and takes no item;
+  in creative with a sword the server ignores `START_DESTROY_BLOCK`, so the item stays; Java's separate glow frame
+  sounds are not used (Bedrock has one set). End-to-end coverage: scenario `item_frame` (operator needed).
 
 ## Inventories and items (inventory)
 

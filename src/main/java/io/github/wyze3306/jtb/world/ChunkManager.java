@@ -14,6 +14,7 @@ import io.github.wyze3306.jtb.world.chunk.ChunkLayout;
 import io.github.wyze3306.jtb.world.chunk.ChunkSection;
 import io.github.wyze3306.jtb.world.chunk.DerivedStatePass;
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
@@ -51,6 +52,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntPredicate;
 
 /**
  * The chunks of the current dimension, from Bedrock packets to Java packets. Lives on the session
@@ -67,7 +69,9 @@ import java.util.concurrent.TimeUnit;
  * Block changes update the stored sections (copy on write), the worker's light, and the client; a
  * change the packet already built does not show is resent right after it. Stored Java states include
  * the properties Java derives from neighbours ({@link DerivedStates}): derived within the column while
- * decoding, across column borders when a neighbour loads, and around every block change.
+ * decoding, across column borders when a neighbour loads, and around every block change. Item frame
+ * blocks are entities on Java ({@link ItemFrames}): spawned with their column, updated with their
+ * block and block entity, removed with them.
  */
 final class ChunkManager implements ChunkWorker.Output {
 
@@ -86,6 +90,7 @@ final class ChunkManager implements ChunkWorker.Output {
     private final ObjectArrayList<ChunkColumn> queued = new ObjectArrayList<>();
     private final ChunkStats stats = new ChunkStats();
     private final ChunkWorker worker;
+    private final ItemFrames frames;
     private ChunkLayout layout;
     private BiomeTable biomes;
     private long nextToken = 1;
@@ -114,6 +119,7 @@ final class ChunkManager implements ChunkWorker.Output {
         this.biomes = biomes;
         this.worker = new ChunkWorker(session, session.proxy().workers(), this, this.fullBright, this.mapper.lightTable(), this.stats);
         this.worker.reset(layout, biomes.registrySize());
+        this.frames = new ItemFrames(session);
     }
 
     /** A new world (dimension change): every chunk is dropped; the client drops its own on respawn. */
@@ -127,6 +133,7 @@ final class ChunkManager implements ChunkWorker.Output {
         this.cacheCenterX = Integer.MIN_VALUE;
         this.playerChunkX = Integer.MIN_VALUE;
         this.worker.reset(newLayout, newBiomes.registrySize());
+        this.frames.forgetAll();
     }
 
     /** Custom biomes changed the table (normally before the first chunk; chunks already decoded keep theirs). */
@@ -177,6 +184,10 @@ final class ChunkManager implements ChunkWorker.Output {
     @Nullable NbtMap bedrockBlockEntityAt(int x, int y, int z) {
         ChunkColumn column = column(x >> 4, z >> 4);
         return column == null ? null : column.bedrockBlockEntities.get(BlockEntityTranslator.packLocal(x, y, z, this.layout.javaMinY()));
+    }
+
+    @Nullable ItemFrame itemFrame(int javaEntityId) {
+        return this.frames.frame(javaEntityId);
     }
 
     // ------------------------------------------------------------------ level chunks
@@ -230,14 +241,15 @@ final class ChunkManager implements ChunkWorker.Output {
         return biomes;
     }
 
-    /** Decoded column data, ready to be stored. */
+    /** Decoded column data, ready to be stored; {@code frames} holds position, frame value pairs. */
     private record Decoded(@Nullable ChunkSection[] sections, int[][] biomes, Int2ObjectOpenHashMap<NbtMap> blockEntities,
-                           IntOpenHashSet javaBlockEntities) {
+                           IntOpenHashSet javaBlockEntities, IntArrayList frames) {
     }
 
     /**
      * Worker side: indexes the block entities, applies the states they imply, derives the states that
-     * depend on neighbours within the column ({@code derive}) and finds the Java block entity positions.
+     * depend on neighbours within the column ({@code derive}) and finds the Java block entity positions
+     * and the item frames.
      */
     private static Decoded finishDecode(int chunkX, int chunkZ, @Nullable ChunkSection[] sections, int[][] biomes,
                                         List<NbtMap> blockEntities, ChunkLayout layout, BlockMapper mapper, boolean derive) {
@@ -266,18 +278,42 @@ final class ChunkManager implements ChunkWorker.Output {
             DerivedStatePass.deriveColumn(sections, layout, mapper);
         }
         IntOpenHashSet java = new IntOpenHashSet();
+        IntArrayList frames = new IntArrayList(0);
+        IntPredicate frame = runtimeId -> mapper.itemFrame(runtimeId) >= 0;
         for (int s = 0; s < sections.length; s++) {
             ChunkSection section = sections[s];
-            if (section == null || !section.java().paletteContains(JavaBlockStates::hasBlockEntity)) {
+            if (section == null) {
                 continue;
             }
-            for (int i = 0; i < BlockStorage.SIZE; i++) {
-                if (JavaBlockStates.hasBlockEntity(section.javaAt(i))) {
-                    java.add((i & 0xFF) | (((s << 4) | (i >> 8)) << 8));
+            if (section.java().paletteContains(JavaBlockStates::hasBlockEntity)) {
+                for (int i = 0; i < BlockStorage.SIZE; i++) {
+                    if (JavaBlockStates.hasBlockEntity(section.javaAt(i))) {
+                        java.add(packIndex(s, i));
+                    }
+                }
+            }
+            if (section.layer0().paletteContains(frame)) {
+                for (int i = 0; i < BlockStorage.SIZE; i++) {
+                    int value = mapper.itemFrame(section.layer0().get(i));
+                    if (value >= 0) {
+                        frames.add(packIndex(s, i));
+                        frames.add(value);
+                    }
                 }
             }
         }
-        return new Decoded(sections, biomes, bedrock, java);
+        return new Decoded(sections, biomes, bedrock, java, frames);
+    }
+
+    /** {@code BlockEntityTranslator.packLocal} of the block at index {@code i} of Java section {@code s}. */
+    private static int packIndex(int s, int i) {
+        return (i & 0xFF) | (((s << 4) | (i >> 8)) << 8);
+    }
+
+    private static void putFrames(ChunkColumn column, IntArrayList frames) {
+        for (int k = 0; k < frames.size(); k += 2) {
+            column.frames.put(frames.getInt(k), frames.getInt(k + 1));
+        }
     }
 
     private void onDecoded(ChunkColumn column, Decoded decoded, long nanos) {
@@ -289,6 +325,7 @@ final class ChunkManager implements ChunkWorker.Output {
         column.biomes = decoded.biomes();
         column.bedrockBlockEntities.putAll(decoded.blockEntities());
         column.javaBlockEntities.addAll(decoded.javaBlockEntities());
+        putFrames(column, decoded.frames());
         if (!column.requestedSections.isEmpty()) {
             column.stage = ChunkColumn.Stage.REQUESTING;
             column.requestedAt = System.nanoTime();
@@ -488,6 +525,7 @@ final class ChunkManager implements ChunkWorker.Output {
                         this.mapper, false);
                 column.bedrockBlockEntities.putAll(extra.blockEntities());
                 column.javaBlockEntities.addAll(extra.javaBlockEntities());
+                putFrames(column, extra.frames());
             }
             if (column.requestedSections.isEmpty()) {
                 loaded(column);
@@ -555,6 +593,7 @@ final class ChunkManager implements ChunkWorker.Output {
         }
         if (column.stage == ChunkColumn.Stage.SENT) {
             this.session.sendJava(new ClientboundForgetLevelChunkPacket(column.x, column.z));
+            showFrames(column, false);
         }
         if (column.isDecoded()) {
             this.worker.unload(column.x, column.z);
@@ -841,6 +880,9 @@ final class ChunkManager implements ChunkWorker.Output {
                 }
             }
             record(packed, oldJava, newJava);
+            if (layer == 0 && oldBedrock != runtimeId) {
+                frameChanged(this.column, x, y, z, packed, oldBedrock, runtimeId);
+            }
             return oldJava != newJava;
         }
 
@@ -896,6 +938,32 @@ final class ChunkManager implements ChunkWorker.Output {
                         this.newStates.toIntArray());
             }
             published(this.column, this.cells, this.newStates, javaChanges);
+        }
+    }
+
+    /**
+     * A block of a decoded column changed in layer 0: an item frame appeared, went away or turned
+     * (its entity is replaced). The block entity of a frame that is gone is dropped with it, so a frame
+     * placed there later does not show the old item.
+     */
+    private void frameChanged(ChunkColumn column, int x, int y, int z, int packed, int oldRuntimeId, int newRuntimeId) {
+        int before = this.mapper.itemFrame(oldRuntimeId);
+        int after = this.mapper.itemFrame(newRuntimeId);
+        if (before == after) {
+            return;
+        }
+        if (after >= 0) {
+            column.frames.put(packed, after);
+        } else {
+            column.frames.remove(packed);
+            column.bedrockBlockEntities.remove(packed);
+        }
+        if (column.stage == ChunkColumn.Stage.SENT) {
+            if (after >= 0) {
+                this.frames.spawn(x, y, z, after, column.bedrockBlockEntities.get(packed));
+            } else {
+                this.frames.remove(x, y, z);
+            }
         }
     }
 
@@ -969,6 +1037,9 @@ final class ChunkManager implements ChunkWorker.Output {
         }
         int packed = BlockEntityTranslator.packLocal(x, y, z, this.layout.javaMinY());
         column.bedrockBlockEntities.put(packed, nbt);
+        if (column.stage == ChunkColumn.Stage.SENT && column.frames.containsKey(packed)) {
+            this.frames.update(x, y, z, nbt);
+        }
         ChunkSection section = column.sections[index];
         int i = BlockStorage.index(x & 15, y & 15, z & 15);
         int current = section == null ? JavaBlockStates.AIR : section.javaAt(i);
@@ -1111,6 +1182,23 @@ final class ChunkManager implements ChunkWorker.Output {
         if (!column.dirty.isEmpty()) {
             resendDirty(column);
         }
+        showFrames(column, true);
+    }
+
+    /** Spawns (the column was sent) or removes (it was forgotten) the entities of a column's item frames. */
+    private void showFrames(ChunkColumn column, boolean show) {
+        int minY = this.layout.javaMinY();
+        for (Int2IntMap.Entry frame : column.frames.int2IntEntrySet()) {
+            int packed = frame.getIntKey();
+            int x = (column.x << 4) | (packed & 15);
+            int y = (packed >> 8) + minY;
+            int z = (column.z << 4) | ((packed >> 4) & 15);
+            if (show) {
+                this.frames.spawn(x, y, z, frame.getIntValue(), column.bedrockBlockEntities.get(packed));
+            } else {
+                this.frames.remove(x, y, z);
+            }
+        }
     }
 
     private void resendDirty(ChunkColumn column) {
@@ -1144,6 +1232,7 @@ final class ChunkManager implements ChunkWorker.Output {
 
     void close() {
         this.closed = true;
+        this.frames.forgetAll();
         this.worker.close();
         this.columns.clear();
         this.waiting.clear();

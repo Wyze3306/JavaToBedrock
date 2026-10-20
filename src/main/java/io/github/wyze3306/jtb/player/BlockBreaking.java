@@ -7,6 +7,7 @@ import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
 import io.github.wyze3306.jtb.session.StateKey;
 import io.github.wyze3306.jtb.sound.SoundState;
+import io.github.wyze3306.jtb.world.ItemFrame;
 import io.github.wyze3306.jtb.world.WorldState;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.protocol.bedrock.data.PlayerActionType;
@@ -35,8 +36,18 @@ import java.util.BitSet;
  * instant (destroy time 0) breaks by itself, and the Java client sends no FINISH for them, so those
  * get {@code START + PREDICT} in the same input.
  * <p>
- * Other players' cracks are drawn by {@link io.github.wyze3306.jtb.sound.BlockCracking}; the sound
- * subsystem skips the block the local player is digging ({@link #isDigging}).
+ * <b>Item frames</b> are entities on Java and blocks on Bedrock: a Java attack on one is a left click
+ * on the block ({@link #punchFrame}). PowerNukkitX handles {@code START_DESTROY_BLOCK} on a frame as
+ * that click (the item drops, or vanishes in creative), so a frame holding an item gets
+ * {@code START + ABORT}; an empty frame is broken, in creative with {@code START + PREDICT}, in survival
+ * with the digging sequence held for the frame's break time. Java sends no digging for an entity, so
+ * the proxy completes that dig itself, after the time the server's crack level event announces
+ * ({@link #onServerCrack}), or the frame's hand break time until it arrives.
+ * <p>
+ * CONTRACT (owner: player, used by sound). Other players' cracks are drawn by
+ * {@link io.github.wyze3306.jtb.sound.BlockCracking}; the sound subsystem skips the block the local
+ * player is digging ({@link #isDigging}) and passes the server's crack speed for it to
+ * {@link #onServerCrack}.
  */
 public final class BlockBreaking implements SessionState {
 
@@ -44,6 +55,10 @@ public final class BlockBreaking implements SessionState {
 
     /** A crack nobody stopped is dropped after twice its expected duration. */
     private static final float MAX_PROGRESS = 2;
+    /** Bedrock's full crack progress ({@code BLOCK_START_BREAK} data is this over the ticks to break). */
+    private static final int FULL_PROGRESS = 65535;
+    /** Ticks to break a frame by hand on the ground (hardness 0.25 x 1.5 s), until the server says otherwise. */
+    private static final int FRAME_BREAK_TICKS = 8;
 
     private final ProxySession session;
     private boolean digging;
@@ -51,6 +66,12 @@ public final class BlockBreaking implements SessionState {
     private Vector3i digPosition = Vector3i.ZERO;
     /** The {@code CONTINUE_DESTROY_BLOCK} sent every tick while digging, built once per block. */
     private PlayerBlockActionData continueAction;
+    /** Whether the dig is an item frame broken by a Java attack: the proxy finishes it. */
+    private boolean frameDig;
+    private int frameFace;
+    /** Auth inputs sent since the frame dig started, and how many the break takes. */
+    private int frameTicks;
+    private int frameTicksNeeded;
 
     private BlockBreaking(ProxySession session) {
         this.session = session;
@@ -66,6 +87,8 @@ public final class BlockBreaking implements SessionState {
         PlayerState player = this.session.get(PlayerState.KEY);
         AuthInputBuilder input = player.input();
         int face = direction.ordinal();
+        // The Java client digs a block: a frame being broken is given up.
+        this.frameDig = false;
         switch (action) {
             case START_DIGGING -> {
                 if (!player.abilities().canMine()) {
@@ -110,9 +133,54 @@ public final class BlockBreaking implements SessionState {
         }
     }
 
-    /** Right before each auth input: the per-tick {@code CONTINUE_DESTROY_BLOCK} while digging. */
+    /**
+     * Java attack on an item frame entity: a left click on the frame block, facing the side the frame
+     * faces. Repeated attacks while the frame is being broken are ignored.
+     */
+    void punchFrame(ItemFrame frame) {
+        Vector3i position = frame.position();
+        if (this.frameDig && this.digPosition.equals(position)) {
+            return;
+        }
+        AuthInputBuilder input = this.session.get(PlayerState.KEY).input();
+        int face = frame.facing();
+        input.addBlockAction(AuthInputBuilder.blockAction(PlayerActionType.START_DESTROY_BLOCK, position, face));
+        if (frame.hasItem()) {
+            input.addBlockAction(AuthInputBuilder.blockAction(PlayerActionType.ABORT_DESTROY_BLOCK, position, face));
+        } else if (this.session.get(PlayerState.KEY).javaGameMode() == GameMode.CREATIVE) {
+            input.addBlockAction(AuthInputBuilder.blockAction(PlayerActionType.PREDICT_DESTROY_BLOCK, position, face));
+        } else {
+            this.digging = true;
+            this.startedThisTick = true;
+            this.digPosition = position;
+            this.continueAction = AuthInputBuilder.blockAction(PlayerActionType.CONTINUE_DESTROY_BLOCK, position, face);
+            this.frameDig = true;
+            this.frameFace = face;
+            this.frameTicks = 0;
+            this.frameTicksNeeded = FRAME_BREAK_TICKS;
+        }
+    }
+
+    /**
+     * The server started (or changed) the crack of the block the local player digs: {@code progressPerTick}
+     * is the {@code BLOCK_START_BREAK} / {@code BLOCK_UPDATE_BREAK} data, {@code 65535 / ticks to break}.
+     * Times the end of a frame dig; the Java client times its own digs.
+     */
+    public void onServerCrack(int x, int y, int z, int progressPerTick) {
+        if (this.frameDig && progressPerTick > 0 && isDigging(x, y, z)) {
+            this.frameTicksNeeded = this.frameTicks + Math.round((float) FULL_PROGRESS / progressPerTick);
+        }
+    }
+
+    /** Right before each auth input: the per-tick {@code CONTINUE_DESTROY_BLOCK} while digging, the end of a frame dig. */
     void beforeInput(AuthInputBuilder input) {
-        if (this.digging && !this.startedThisTick) {
+        if (this.frameDig && !this.startedThisTick && ++this.frameTicks >= this.frameTicksNeeded) {
+            input.addBlockAction(this.continueAction);
+            input.addBlockAction(AuthInputBuilder.blockAction(PlayerActionType.PREDICT_DESTROY_BLOCK, this.digPosition, this.frameFace));
+            input.addBlockAction(AuthInputBuilder.blockAction(PlayerActionType.ABORT_DESTROY_BLOCK, this.digPosition, 0));
+            this.frameDig = false;
+            this.digging = false;
+        } else if (this.digging && !this.startedThisTick) {
             input.addBlockAction(this.continueAction);
         }
         this.startedThisTick = false;
@@ -134,6 +202,7 @@ public final class BlockBreaking implements SessionState {
     /** Stops digging (death, respawn). */
     void reset() {
         this.digging = false;
+        this.frameDig = false;
     }
 
     /**

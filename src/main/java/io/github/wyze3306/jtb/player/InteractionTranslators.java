@@ -4,6 +4,7 @@ import io.github.wyze3306.jtb.entity.EntityTracker;
 import io.github.wyze3306.jtb.inventory.InventoryState;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.sound.SoundState;
+import io.github.wyze3306.jtb.world.ItemFrame;
 import io.github.wyze3306.jtb.world.WorldState;
 import org.cloudburstmc.math.vector.Vector3d;
 import org.cloudburstmc.math.vector.Vector3f;
@@ -31,6 +32,10 @@ import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.Serv
  * Off-hand uses have no Bedrock equivalent (Bedrock always uses the main hand): the Java client sends
  * the main hand first and only falls back to the off hand when it did nothing, so those are dropped
  * (their sequence is still acknowledged).
+ * <p>
+ * Item frames are blocks on Bedrock and entities on Java ({@link WorldState#itemFrame}): attacking one
+ * is a left click on the block ({@link BlockBreaking#punchFrame}), using one a click on the block's
+ * front face (what a Bedrock client sends to put an item in or turn it), picking one a block pick.
  */
 final class InteractionTranslators {
 
@@ -73,14 +78,27 @@ final class InteractionTranslators {
             Vector3i position = packet.getPosition();
             int face = packet.getFace().ordinal();
             Vector3i result = packet.isInsideBlock() ? position : position.add(offset(face));
-            sendAction(session, player, PlayerActionType.START_ITEM_USE_ON, position, result, face);
-            int target = session.get(WorldState.KEY).bedrockBlockAt(position.getX(), position.getY(), position.getZ(), 0);
-            player.interactions().useItemOn(position, face, packet.getCursorX(), packet.getCursorY(), packet.getCursorZ(), target);
-            sendAction(session, player, PlayerActionType.STOP_ITEM_USE_ON, position, Vector3i.ZERO, 0);
+            clickBlock(session, player, position, face, result, packet.getCursorX(), packet.getCursorY(), packet.getCursorZ(), true);
             // The Java client already played the place sound of a block it placed.
             session.get(SoundState.KEY).onLocalBlockPlaced(result.getX(), result.getY(), result.getZ());
         }
         player.interactions().acknowledge(packet.getSequence());
+    }
+
+    /**
+     * A main hand click on a block, sent like the vanilla client: {@code PlayerAction(START_ITEM_USE_ON)},
+     * the {@code ItemUse(PLACE)} transaction, {@code PlayerAction(STOP_ITEM_USE_ON)}.
+     *
+     * @param result where a placed block would go
+     * @param place  whether the click may place the held block (false for an item frame entity: using
+     *               an entity never places a block on Java)
+     */
+    private static void clickBlock(ProxySession session, PlayerState player, Vector3i position, int face, Vector3i result,
+                                   float cursorX, float cursorY, float cursorZ, boolean place) {
+        sendAction(session, player, PlayerActionType.START_ITEM_USE_ON, position, result, face);
+        int target = session.get(WorldState.KEY).bedrockBlockAt(position.getX(), position.getY(), position.getZ(), 0);
+        player.interactions().useItemOn(position, face, cursorX, cursorY, cursorZ, target, place);
+        sendAction(session, player, PlayerActionType.STOP_ITEM_USE_ON, position, Vector3i.ZERO, 0);
     }
 
     static void useItem(ProxySession session, ServerboundUseItemPacket packet) {
@@ -94,6 +112,14 @@ final class InteractionTranslators {
 
     static void attack(ProxySession session, ServerboundAttackPacket packet) {
         PlayerState player = session.get(PlayerState.KEY);
+        ItemFrame frame = session.get(WorldState.KEY).itemFrame(packet.getEntityId());
+        if (frame != null) {
+            if (!player.isDead()) {
+                session.get(BlockBreaking.KEY).punchFrame(frame);
+                player.interactions().acted(ActorSwingSource.MINE);
+            }
+            return;
+        }
         long target = session.get(EntityTracker.KEY).runtimeId(packet.getEntityId());
         if (target == -1 || player.isLocal(target) || player.isDead()) {
             return;
@@ -109,6 +135,14 @@ final class InteractionTranslators {
     static void interact(ProxySession session, ServerboundInteractPacket packet) {
         PlayerState player = session.get(PlayerState.KEY);
         if (packet.getHand() != Hand.MAIN_HAND || player.isDead()) {
+            return;
+        }
+        ItemFrame frame = session.get(WorldState.KEY).itemFrame(packet.getEntityId());
+        if (frame != null) {
+            Vector3i position = frame.position();
+            Vector3f click = frame.clickPosition(packet.getLocation());
+            clickBlock(session, player, position, frame.facing(), position.add(offset(frame.facing())),
+                    click.getX(), click.getY(), click.getZ(), false);
             return;
         }
         long target = session.get(EntityTracker.KEY).runtimeId(packet.getEntityId());
@@ -137,6 +171,15 @@ final class InteractionTranslators {
     }
 
     static void pickEntity(ProxySession session, ServerboundPickItemFromEntityPacket packet) {
+        ItemFrame frame = session.get(WorldState.KEY).itemFrame(packet.getId());
+        if (frame != null) {
+            BlockPickRequestPacket request = new BlockPickRequestPacket();
+            request.setPosition(frame.position());
+            request.setWithData(packet.isIncludeData());
+            request.setMaxSlots(HOTBAR_SLOTS);
+            session.sendBedrock(request);
+            return;
+        }
         long target = session.get(EntityTracker.KEY).runtimeId(packet.getId());
         if (target == -1) {
             return;

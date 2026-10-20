@@ -19,6 +19,9 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  */
 public final class BedrockBlockPalette {
 
+    /** Bit of {@link #itemFrame(int)} set for {@code minecraft:glow_frame}. */
+    public static final int GLOW_FRAME = 8;
+
     /** A Bedrock state property: name, NBT tag type and the values the palette uses, in order. */
     record Property(String name, NbtType<?> type, Object[] values) {
     }
@@ -33,6 +36,8 @@ public final class BedrockBlockPalette {
     private static char[] javaToEntry;
     private static Int2IntOpenHashMap byHash;
     private static Int2IntOpenHashMap potted;
+    /** Per entry: -1, or the item frame value of {@link #itemFrame(int)}. */
+    private static byte[] itemFrames;
     private static Set<String> nameSet;
     private static AtomicReferenceArray<NbtMap> stateCache;
 
@@ -110,6 +115,21 @@ public final class BedrockBlockPalette {
         byHash = hashIndex;
         potted = pots;
         stateCache = new AtomicReferenceArray<>(size);
+        itemFrames = itemFrameTable(size);
+    }
+
+    /** Item frame values of every entry, read from the {@code facing_direction} of the two frame blocks. */
+    private static byte[] itemFrameTable(int size) {
+        byte[] table = new byte[size];
+        Arrays.fill(table, (byte) -1);
+        for (int e = 0; e < size; e++) {
+            String name = name(e);
+            boolean glow = name.equals("minecraft:glow_frame");
+            if ((glow || name.equals("minecraft:frame")) && stateValue(e, "facing_direction") instanceof Number facing) {
+                table[e] = (byte) ((facing.intValue() & 7) | (glow ? GLOW_FRAME : 0));
+            }
+        }
+        return table;
     }
 
     /** Number of vanilla Bedrock states. */
@@ -180,6 +200,15 @@ public final class BedrockBlockPalette {
             }
         }
         return null;
+    }
+
+    /**
+     * Item frame of an entry: -1 when it is neither {@code minecraft:frame} nor {@code minecraft:glow_frame},
+     * else its {@code facing_direction} (0 down, 1 up, 2 north, 3 south, 4 west, 5 east, the order of
+     * Java's {@code Direction}) plus {@link #GLOW_FRAME} for a glow frame.
+     */
+    public static int itemFrame(int index) {
+        return itemFrames[index];
     }
 
     /** The potted Java state for a Java plant state ({@code minecraft:air} gives the empty pot), or -1. */
