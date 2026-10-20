@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * ({@code src/test/pnx-plugin}, installed in {@code /tmp/jtb/pnx-inst/<N>/plugins}): answers a
  * simple form (third button, after a header and a label), a modal form (button 2), a custom form
  * (every input type), two forms sent at once (the second must wait for the first; closed with
- * Escape), an NPC dialogue (closed) and a data-driven screen, then opens the server settings from the pause
+ * Escape), an NPC dialogue (a button clicked) and a data-driven screen (values and a click), then opens the server settings from the pause
  * menu action and submits them, and lets the server close a last form. Checks the plugin received
  * exactly those values.
  */
@@ -82,10 +82,8 @@ public final class FormScenario implements E2eScenario {
                 DialogClicks.click(context, dialog, DialogClicks.exitButton(dialog), Map.of());
             }
             case "PNJ JTB" -> {
-                // Buttons must exist, but PowerNukkitX disconnects after any NPC button click (its
-                // NpcDialogue CLOSE answer fails to encode), so leave with Escape.
                 this.npcButtons = DialogClicks.button(dialog, "Acheter") != null && DialogClicks.button(dialog, "Vendre") != null;
-                DialogClicks.click(context, dialog, DialogClicks.exitButton(dialog), Map.of());
+                DialogClicks.click(context, dialog, DialogClicks.button(dialog, "Vendre"), Map.of());
             }
             case "DDUI JTB" -> {
                 if (!this.dduiClicked) {
@@ -135,10 +133,9 @@ public final class FormScenario implements E2eScenario {
         context.check("queued forms: second shown after the first", this.queueOrdered);
         context.check("queued forms: Escape closes", log.contains("JTBTEST queue2=closed"));
         context.check("NPC dialogue: buttons shown", this.npcButtons);
-        context.check("NPC dialogue: Escape runs the closing commands", log.contains("JTBTEST npc=EXECUTE_CLOSING_COMMANDS:none"));
+        context.check("NPC dialogue: the clicked button reaches the server", log.contains("JTBTEST npc=EXECUTE_ACTION:Vendre"));
         context.check("data-driven screen as a dialog (label, toggle, text field, button)", this.dduiShape && this.dduiClicked);
-        // This PowerNukkitX build never registers its ServerboundDataStore handler: the click cannot
-        // reach the screen's listeners, only the server-side close can be checked.
+        context.check("data-driven screen: the click and values reach its listeners", log.contains("JTBTEST ddui=true|Alex"));
         context.check("data-driven screen closed by the server", this.dduiCleared && log.contains("JTBTEST ddui=closed"));
         context.check("server settings form", log.contains("JTBTEST settings=false"));
         context.check("form closed by the server", this.closingShown && this.closingCleared

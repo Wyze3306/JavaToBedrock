@@ -7,6 +7,8 @@ import org.powernukkitx.ddui.Observable;
 import org.powernukkitx.event.EventHandler;
 import org.powernukkitx.event.Listener;
 import org.powernukkitx.event.player.PlayerJoinEvent;
+import org.powernukkitx.event.server.PacketReceiveEvent;
+import org.cloudburstmc.protocol.bedrock.packet.ServerboundDataStorePacket;
 import org.powernukkitx.form.element.ElementDivider;
 import org.powernukkitx.form.element.ElementHeader;
 import org.powernukkitx.form.element.simple.ButtonImage;
@@ -41,6 +43,15 @@ public final class JtbTestPlugin extends PluginBase implements Listener {
 
     private void run(Player player, String command) {
         getServer().executeCommand(player, command);
+    }
+
+    /** What data-driven screen interactions the server receives (diagnostics for the scenario). */
+    @EventHandler
+    public void onPacket(PacketReceiveEvent event) {
+        if (event.getPacket() instanceof ServerboundDataStorePacket packet && packet.getUpdate() != null) {
+            var update = packet.getUpdate();
+            log("datastore=" + update.getDataStoreName() + "|" + update.getProperty() + "|" + update.getPath() + "|" + update.getData());
+        }
     }
 
     @EventHandler
@@ -165,18 +176,20 @@ public final class JtbTestPlugin extends PluginBase implements Listener {
     }
 
     /**
-     * An NPC dialogue. The scenario closes it with Escape: clicking one of its buttons works (PowerNukkitX
-     * receives EXECUTE_ACTION with the right button) but PowerNukkitX then fails to encode its own
-     * NpcDialogue CLOSE answer (null strings) and disconnects the player, whatever the client.
+     * An NPC dialogue; the scenario clicks "Vendre". (Needs PowerNukkitX with the NpcDialogue CLOSE
+     * fix: without it the server fails to encode its CLOSE answer and disconnects the player.)
      */
     private void npc(Player player) {
         FormWindowDialog dialog = new FormWindowDialog("PNJ JTB", "Bonjour voyageur", player);
         dialog.addButton(new ElementDialogButton("Acheter", "say acheter"));
         dialog.addButton(new ElementDialogButton("Vendre", "say vendre"));
+        java.util.concurrent.atomic.AtomicBoolean answered = new java.util.concurrent.atomic.AtomicBoolean();
         dialog.addHandler((p, response) -> {
             log("npc=" + response.getRequestType() + ":"
                     + (response.getClickedButton() == null ? "none" : response.getClickedButton().getName()));
-            later(10, () -> ddui(p));
+            if (answered.compareAndSet(false, true)) {
+                later(10, () -> ddui(p));
+            }
         });
         dialog.send(player);
     }
@@ -195,9 +208,8 @@ public final class JtbTestPlugin extends PluginBase implements Listener {
     }
 
     /**
-     * A data-driven screen, closed by the server two seconds later. (This PowerNukkitX build has the
-     * ServerboundDataStore handler but does not register it, so button and toggle interactions are
-     * not delivered to the screen's listeners.)
+     * A data-driven screen, closed by the server two seconds later. Its button listener logs the
+     * toggle and text values. (Needs PowerNukkitX with its ServerboundDataStore handler registered.)
      */
     private void ddui(Player player) {
         Observable<Boolean> option = new Observable<>(false);
