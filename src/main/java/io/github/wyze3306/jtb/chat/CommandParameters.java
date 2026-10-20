@@ -108,7 +108,7 @@ final class CommandParameters {
         if (!values.isEmpty() && values.size() <= MAX_LITERAL_ENUM && values.stream().allMatch(CommandParameters::isLiteralSafe)) {
             return new Literals(values);
         }
-        List<Source> sources = List.of(new Values(values));
+        List<Source> sources = values.isEmpty() ? List.of() : List.of(new Values(values));
         if (!values.isEmpty() && values.stream().allMatch(CommandParameters::isResourceLocation)) {
             return new Argument(new CommandArgument(CommandParser.RESOURCE_LOCATION, CommandArgument.NO_PROPERTIES, Syntax.WORD,
                     name, sources));

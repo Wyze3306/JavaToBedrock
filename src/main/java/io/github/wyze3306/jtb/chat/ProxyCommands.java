@@ -2,7 +2,6 @@ package io.github.wyze3306.jtb.chat;
 
 import io.github.wyze3306.jtb.JavaToBedrock;
 import io.github.wyze3306.jtb.chat.CommandTree.Node;
-import io.github.wyze3306.jtb.config.ProxyConfig;
 import io.github.wyze3306.jtb.network.java.JavaKeepAlive;
 import io.github.wyze3306.jtb.network.java.JavaServer;
 import io.github.wyze3306.jtb.session.ProxySession;
@@ -45,11 +44,10 @@ final class ProxyCommands {
     static void execute(ProxySession session, String arguments) {
         switch (arguments.strip().toLowerCase(Locale.ROOT)) {
             case "", "info" -> {
+                // The server address is deliberately not shown: it is often an internal one.
                 send(session, version(session));
-                ProxyConfig.Bedrock bedrock = session.config().bedrock();
-                send(session, line("Serveur Bedrock : ", bedrock.address() + ":" + bedrock.port()
-                        + " (authentification " + bedrock.auth().name().toLowerCase(Locale.ROOT) + ")"));
-                send(session, line("Nom Bedrock : ", session.getBedrockName()));
+                send(session, line("Nom Bedrock : ", session.getBedrockName() + " (authentification "
+                        + session.config().bedrock().auth().name().toLowerCase(Locale.ROOT) + ")"));
                 send(session, ping(session));
             }
             case "version" -> send(session, version(session));
