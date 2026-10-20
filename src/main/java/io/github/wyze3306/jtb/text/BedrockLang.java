@@ -2,6 +2,7 @@ package io.github.wyze3306.jtb.text;
 
 import io.github.wyze3306.jtb.assets.BedrockAssets;
 import io.github.wyze3306.jtb.auth.ClientDataBuilder;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,13 +21,16 @@ import java.util.concurrent.ConcurrentHashMap;
  * translations of the server's resource packs. Server-side translation is needed because the Java
  * client only knows Java keys, which differ from Bedrock's.
  * <p>
- * Languages load in the background on first use; until then {@link #translate} falls back to
- * en_US, then to the key itself.
+ * Languages load in the background on first use; until then lookups fall back to en_US, then to
+ * the key itself. Instances are safe to read from any thread.
  */
-public final class BedrockLang {
+public final class BedrockLang implements BedrockTranslation.Lookup {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(BedrockLang.class);
+    private static final String ENGLISH_CODE = "en_US";
     private static final Map<String, BedrockLang> LANGUAGES = new ConcurrentHashMap<>();
+    /** Java locale ({@code fr_fr}) to language, so the per-message lookup allocates nothing. */
+    private static final Map<String, BedrockLang> BY_JAVA_LOCALE = new ConcurrentHashMap<>();
     private static final List<String> AVAILABLE = List.of("bg_BG", "cs_CZ", "da_DK", "de_DE", "el_GR", "en_GB", "en_US",
             "es_ES", "es_MX", "fi_FI", "fr_CA", "fr_FR", "hu_HU", "id_ID", "it_IT", "ja_JP", "ko_KR", "nb_NO", "nl_NL",
             "pl_PL", "pt_BR", "pt_PT", "ru_RU", "sk_SK", "sv_SE", "tr_TR", "uk_UA", "zh_CN", "zh_TW");
@@ -35,6 +39,8 @@ public final class BedrockLang {
     private volatile Map<String, String> entries = Map.of();
     private final Map<String, String> packEntries = new ConcurrentHashMap<>();
     private volatile boolean loaded;
+    private volatile boolean loading;
+    private volatile @Nullable BedrockLang english;
 
     private BedrockLang(String code) {
         this.code = code;
@@ -42,11 +48,16 @@ public final class BedrockLang {
 
     /** The Bedrock language matching a Java locale ({@code fr_fr}), or en_US. */
     public static BedrockLang forJavaLocale(String javaLocale) {
-        String code = ClientDataBuilder.bedrockLanguage(javaLocale, "en_US");
-        if (!AVAILABLE.contains(code)) {
-            code = "en_US";
+        BedrockLang lang = BY_JAVA_LOCALE.get(javaLocale);
+        if (lang == null) {
+            String code = ClientDataBuilder.bedrockLanguage(javaLocale, ENGLISH_CODE);
+            if (!AVAILABLE.contains(code)) {
+                code = ENGLISH_CODE;
+            }
+            lang = forCode(code);
+            BY_JAVA_LOCALE.put(javaLocale, lang);
         }
-        return forCode(code);
+        return lang;
     }
 
     public static BedrockLang forCode(String code) {
@@ -62,13 +73,16 @@ public final class BedrockLang {
         }
     }
 
-    private boolean loading;
-
-    private synchronized void ensureLoading() {
+    private void ensureLoading() {
         if (this.loading) {
             return;
         }
-        this.loading = true;
+        synchronized (this) {
+            if (this.loading) {
+                return;
+            }
+            this.loading = true;
+        }
         CompletableFuture.runAsync(() -> {
             Path file = BedrockAssets.get("resource_pack/texts/" + this.code + ".lang");
             if (file != null) {
@@ -121,42 +135,56 @@ public final class BedrockLang {
     }
 
     public boolean has(String key) {
-        return this.packEntries.containsKey(key) || this.entries.containsKey(key)
-                || (!this.code.equals("en_US") && forCode("en_US").hasOwn(key));
+        return get(key) != null;
     }
 
-    private boolean hasOwn(String key) {
-        return this.packEntries.containsKey(key) || this.entries.containsKey(key);
-    }
-
-    private String raw(String key) {
+    /**
+     * The raw translation pattern of {@code key}: server packs first, then vanilla, then the same in
+     * en_US; null when no language knows it.
+     */
+    @Override
+    public @Nullable String get(String key) {
         String value = this.packEntries.get(key);
         if (value == null) {
             value = this.entries.get(key);
         }
-        if (value == null && !this.code.equals("en_US")) {
-            BedrockLang english = forCode("en_US");
-            value = english.packEntries.get(key);
+        if (value == null && !this.code.equals(ENGLISH_CODE)) {
+            BedrockLang fallback = this.english;
+            if (fallback == null) {
+                fallback = forCode(ENGLISH_CODE);
+                this.english = fallback;
+            }
+            value = fallback.packEntries.get(key);
             if (value == null) {
-                value = english.entries.get(key);
+                value = fallback.entries.get(key);
             }
         }
         return value;
     }
 
     /**
-     * Translates {@code key} with Bedrock's placeholder syntax: {@code %s}, {@code %d},
-     * {@code %1$s} / {@code %1} (positional) and {@code %%}. Unknown keys are returned unchanged.
+     * Translates {@code key} with Bedrock's placeholder syntax (see {@link #format(String, List)}).
+     * Unknown keys are returned unchanged, followed by the arguments. For full Bedrock text, with
+     * {@code %key} references and translated parameters, use {@link BedrockTranslation}.
      */
     public String translate(String key, String... args) {
-        String pattern = raw(key);
+        String pattern = get(key);
         if (pattern == null) {
             return args.length == 0 ? key : key + " " + String.join(" ", args);
         }
-        return format(pattern, args);
+        return format(pattern, List.of(args));
     }
 
     public static String format(String pattern, String... args) {
+        return format(pattern, List.of(args));
+    }
+
+    /**
+     * Fills Bedrock placeholders: {@code %s %d %f} take the next argument, {@code %1$s} and
+     * {@code %1} a positional one, {@code %%} is a percent sign. Missing arguments become empty
+     * strings; inserted arguments are not scanned again.
+     */
+    public static String format(String pattern, List<String> args) {
         if (pattern.indexOf('%') < 0) {
             return pattern;
         }
@@ -174,19 +202,21 @@ public final class BedrockLang {
                 out.append('%');
                 i++;
             } else if (n == 's' || n == 'd' || n == 'f') {
-                out.append(next < args.length ? args[next] : "");
+                out.append(next < args.size() ? args.get(next) : "");
                 next++;
                 i++;
-            } else if (Character.isDigit(n)) {
+            } else if (n >= '0' && n <= '9') {
                 int j = i + 1;
-                while (j < length && Character.isDigit(pattern.charAt(j))) {
+                int index = 0;
+                while (j < length && pattern.charAt(j) >= '0' && pattern.charAt(j) <= '9') {
+                    index = Math.min(index * 10 + (pattern.charAt(j) - '0'), 10_000);
                     j++;
                 }
-                int index = Integer.parseInt(pattern.substring(i + 1, j)) - 1;
                 if (j + 1 < length && pattern.charAt(j) == '$' && "sdf".indexOf(pattern.charAt(j + 1)) >= 0) {
                     j += 2;
                 }
-                out.append(index >= 0 && index < args.length ? args[index] : "");
+                index--;
+                out.append(index >= 0 && index < args.size() ? args.get(index) : "");
                 i = j - 1;
             } else {
                 out.append(c);

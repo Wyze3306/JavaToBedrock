@@ -11,6 +11,9 @@ import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
 import org.cloudburstmc.protocol.bedrock.packet.StartGamePacket;
 import org.jspecify.annotations.Nullable;
 
+import java.util.Collection;
+import java.util.List;
+
 /**
  * CONTRACT (owner: entity subsystem). Entities known to the Java client and the id mapping
  * between Bedrock runtime/unique ids (longs) and Java entity ids (ints).
@@ -81,5 +84,13 @@ public final class EntityTracker implements SessionState {
      */
     public @Nullable String scoreHolder(long uniqueId) {
         return null;
+    }
+
+    /**
+     * Names of the players in the server's player list ({@code PlayerListPacket}), as the Bedrock
+     * server spells them. Used by the chat subsystem for command suggestions.
+     */
+    public Collection<String> playerNames() {
+        return List.of();
     }
 }
