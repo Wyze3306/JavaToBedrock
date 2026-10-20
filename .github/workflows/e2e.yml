@@ -1,0 +1,49 @@
+name: End-to-end
+
+# A real PowerNukkitX server (built from the fork with the JavaToBedrock companion features), the
+# proxy and the headless Java client. About 15 minutes: run on pull requests, on the default branch
+# and on demand.
+on:
+  workflow_dispatch:
+    inputs:
+      pnx_ref:
+        description: PowerNukkitX branch, tag or commit (Wyze3306/PowerNukkitX)
+        default: ccr-80c30af5-ygsiz9
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Wyze3306/PowerNukkitX
+          ref: ${{ inputs.pnx_ref || 'ccr-80c30af5-ygsiz9' }}
+          path: pnx-src
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build PowerNukkitX
+        run: cd pnx-src && ./gradlew shadowJar --no-daemon --no-configuration-cache
+      - name: Scenarios
+        run: |
+          status=0
+          for scenario in default world player entity chat sound world_travel; do
+            echo "::group::$scenario"
+            tools/e2e/run.sh pnx-src/build/powernukkitx.jar "$scenario" 40 || { status=1; echo "::error::scenario $scenario failed"; }
+            mkdir -p build/e2e-logs/$scenario && cp build/e2e/*.log build/e2e-logs/$scenario/
+            echo "::endgroup::"
+          done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-logs
+          path: build/e2e-logs
