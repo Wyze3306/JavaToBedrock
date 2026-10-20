@@ -31,6 +31,7 @@ configurations.all {
 
 dependencies {
     implementation(libs.mcprotocollib)
+    implementation(libs.minecraftauth)
     implementation(libs.bedrock.connection)
     implementation(libs.netty.all)
     implementation(libs.netty.raknet)
