@@ -5,6 +5,7 @@ import io.github.wyze3306.jtb.player.PlayerState;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
 import io.github.wyze3306.jtb.session.StateKey;
+import io.github.wyze3306.jtb.ui.BossBarState;
 import io.github.wyze3306.jtb.world.WorldState;
 import io.netty.buffer.Unpooled;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
@@ -348,6 +349,11 @@ public final class EntityTracker implements SessionState {
         int[] ids = Arrays.copyOf(entity.parts, entity.parts.length + 1);
         ids[ids.length - 1] = entity.javaId();
         this.session.sendJava(new ClientboundRemoveEntitiesPacket(ids));
+        // Bedrock drops a boss's bar with the boss.
+        BossBarState bars = this.session.getIfPresent(BossBarState.KEY);
+        if (bars != null) {
+            bars.onEntityRemoved(entity.uniqueId());
+        }
         forget(entity);
     }
 
