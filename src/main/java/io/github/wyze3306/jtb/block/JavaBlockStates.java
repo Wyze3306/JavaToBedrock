@@ -6,6 +6,8 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * The Java 26.3 block registry: blocks, their properties and every global block state id, with the
@@ -264,6 +266,16 @@ public final class JavaBlockStates {
             }
         }
         return result;
+    }
+
+    /** Every property of {@code state} with its value, in the block's property order. */
+    public static Map<String, String> properties(int state) {
+        String[] names = propertyNames[stateBlock[state]];
+        Map<String, String> values = new LinkedHashMap<>(names.length * 2);
+        for (String name : names) {
+            values.put(name, property(state, name));
+        }
+        return values;
     }
 
     /** {@code minecraft:name[k=v,...]}, for logs and debugging. */

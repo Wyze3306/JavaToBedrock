@@ -1,5 +1,7 @@
 package io.github.wyze3306.jtb.block;
 
+import io.github.wyze3306.jtb.resourcepack.CustomBlockCarrier;
+import io.github.wyze3306.jtb.resourcepack.ResourcePackState;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
 import io.github.wyze3306.jtb.session.StateKey;
@@ -145,11 +147,32 @@ public final class BlockMapper implements SessionState {
         }
         this.airRuntimeId = this.hashed ? AIR_HASH : this.vanillaRuntime[BedrockBlockPalette.indexOfHash(AIR_HASH)];
         applyCustomLight(blocks);
+        publishCarriers(blocks);
         if (total > 0) {
             this.session.logger().info("[{}] {} custom blocks ({} states, {} carrier states available), {} runtime ids",
                     this.session.getName(), blocks.size(), total, CustomBlockAllocator.capacity(CustomBlockAllocator.Pool.OPAQUE),
                     this.hashed ? "hashed" : "ordered");
         }
+    }
+
+    /**
+     * Tells the resource pack converter which Java state shows each custom block state, so the pack
+     * retextures those carrier states (states left on the fallback block are not rewritten).
+     */
+    private void publishCarriers(List<CustomBlock> blocks) {
+        int fallback = JavaBlockStates.defaultState(CustomBlockAllocator.FALLBACK);
+        List<CustomBlockCarrier> carriers = new ArrayList<>();
+        for (CustomBlock block : blocks) {
+            for (CustomBlock.State state : block.states()) {
+                if (JavaBlockStates.blockId(state.javaState()) == JavaBlockStates.blockId(fallback)) {
+                    continue;
+                }
+                carriers.add(new CustomBlockCarrier(block.identifier(), state.states(), block.definition(),
+                        "minecraft:" + JavaBlockStates.blockName(JavaBlockStates.blockId(state.javaState())),
+                        JavaBlockStates.properties(state.javaState())));
+            }
+        }
+        this.session.get(ResourcePackState.KEY).setCustomBlockCarriers(carriers);
     }
 
     private record CustomDefinition(String identifier, NbtMap nbt, List<NbtMap> permutations) {

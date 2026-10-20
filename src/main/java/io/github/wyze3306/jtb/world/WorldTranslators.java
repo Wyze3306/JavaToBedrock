@@ -63,8 +63,12 @@ final class WorldTranslators {
     static final int MIN_CHUNK_RADIUS = 5;
     /** Bedrock "position not known yet" height (dimension changes send the real position later). */
     private static final float UNKNOWN_Y = 32000f;
-    /** Java blocks whose block events Java understands from a Bedrock server (chests, note blocks, spawners, gateways). */
-    private static final Set<String> EVENT_BLOCKS = Set.of("chest", "trapped_chest", "ender_chest", "note_block", "spawner",
+    /**
+     * Java blocks whose block events Java understands from a Bedrock server (chests, spawners,
+     * gateways). Not note blocks: the sound subsystem plays their note with the exact instrument from
+     * the {@code note} level sound event, a Java block event would play it a second time.
+     */
+    private static final Set<String> EVENT_BLOCKS = Set.of("chest", "trapped_chest", "ender_chest", "spawner",
             "end_gateway", "bell", "decorated_pot");
 
     private WorldTranslators() {
@@ -218,6 +222,8 @@ final class WorldTranslators {
 
     static void gameRules(ProxySession session, GameRulesChangedPacket packet) {
         session.get(WorldState.KEY).onGameRules(packet.getRulesData().getRulesList());
+        // Immediate respawn, coordinates, sleeping percentage...
+        session.get(PlayerState.KEY).onGameRules(packet.getRulesData().getRulesList());
     }
 
     static void spawnPosition(ProxySession session, SetSpawnPositionPacket packet) {
@@ -248,6 +254,8 @@ final class WorldTranslators {
         session.logger().debug("[{}] Dimension change to {} at {} (loading screen {})", session.getName(), dimension,
                 packet.getPosition(), packet.getLoadingScreenId());
         Key worldKey = world.changeDimension(dimension, packet.getLoadingScreenId());
+        // Java movements mean nothing until the server confirmed the change.
+        player.setDimensionChanging(true);
         PlayerSpawnInfo info = new PlayerSpawnInfo(JavaDimensions.typeId(dimension), worldKey, 0L,
                 GameModes.toJava(player.gameType()), null, false, false, null, 0, 63);
         session.sendJava(new ClientboundRespawnPacket(info, true, true));
@@ -271,6 +279,7 @@ final class WorldTranslators {
         }
         WorldState world = session.get(WorldState.KEY);
         Integer loadingScreen = world.finishDimensionChange();
+        session.get(PlayerState.KEY).setDimensionChanging(false);
         session.logger().debug("[{}] Dimension change acknowledged", session.getName());
         PlayerActionPacket ack = new PlayerActionPacket();
         ack.setPlayerRuntimeID(session.get(PlayerState.KEY).runtimeId());

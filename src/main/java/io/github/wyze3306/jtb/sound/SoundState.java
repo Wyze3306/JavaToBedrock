@@ -5,6 +5,7 @@ import io.github.wyze3306.jtb.mapping.JavaRegistries;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
 import io.github.wyze3306.jtb.session.StateKey;
+import io.github.wyze3306.jtb.world.WorldState;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.cloudburstmc.math.vector.Vector3f;
@@ -113,6 +114,8 @@ public final class SoundState implements SessionState {
 
     private SoundState(ProxySession session) {
         this.session = session;
+        // The Java client forgets the weather when it respawns into another world.
+        session.get(WorldState.KEY).onDimensionChange(this::resendWeather);
     }
 
     // ------------------------------------------------------------------ local predictions
