@@ -106,6 +106,11 @@ public final class BedrockReconnect implements SessionState {
         return true;
     }
 
+    /** The Bedrock server the session is on or connecting to. */
+    public @Nullable InetSocketAddress server() {
+        return this.target;
+    }
+
     /** True while the player waits for the server: the configuration must not time out. */
     public boolean isWaiting() {
         return this.waiting;

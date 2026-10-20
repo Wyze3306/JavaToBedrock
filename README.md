@@ -29,7 +29,14 @@ Client Java 26.3 ──TCP──▶ JavaToBedrock ──RakNet──▶ Serveur 
 5. Dans Minecraft Java 26.3 : *Multijoueur → Ajouter un serveur →* l'adresse du proxy
    (port `25565` par défaut).
 
-Commandes de la console du proxy : `list`, `stop`.
+Commandes de la console du proxy :
+
+| Commande | Effet |
+|---|---|
+| `list` | joueurs, serveur Bedrock de chacun, ping Java et Bedrock, salle d'attente |
+| `servers` | état de chaque serveur Bedrock (MOTD, version, joueurs) |
+| `send <joueur\|*> <serveur>` | envoie un joueur (ou tous) sur un autre serveur Bedrock, sans déconnexion |
+| `stop` | arrête le proxy |
 
 ### Avec Docker
 

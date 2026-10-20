@@ -147,20 +147,13 @@ public final class JavaToBedrock {
     }
 
     private void readConsole() throws IOException {
+        ConsoleCommands commands = new ConsoleCommands(this);
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         String line;
         while (this.running && (line = reader.readLine()) != null) {
-            String command = line.trim().toLowerCase(Locale.ROOT);
-            switch (command) {
-                case "" -> {
-                }
-                case "stop", "end", "exit" -> {
-                    stop();
-                    System.exit(0);
-                }
-                case "list" -> LOGGER.info("{} player(s): {}", this.sessions.size(),
-                        String.join(", ", this.sessions.all().stream().map(s -> s.getName()).toList()));
-                default -> LOGGER.info("Commands: list, stop");
+            if (!commands.run(line)) {
+                stop();
+                System.exit(0);
             }
         }
     }
