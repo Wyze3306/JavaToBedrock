@@ -96,6 +96,13 @@ public final class TrackedEntity {
 
     // Riding.
     long vehicle = -1;
+    /** Ambient sound settings from the entity data (Bedrock clients play these themselves). */
+    String ambientEvent;
+    float ambientInterval = -1;
+    float ambientRange = -1;
+    int ambientTicks;
+    /** Ground distance walked since the last step sound. */
+    double stepDistance;
     @Nullable LongArrayList passengers;
 
     // Proxy-side Java entities of a custom entity (interaction, displays...).
