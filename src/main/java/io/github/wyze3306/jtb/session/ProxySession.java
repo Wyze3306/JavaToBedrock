@@ -347,7 +347,8 @@ public final class ProxySession {
             return -1;
         }
         RakSessionCodec codec = rak.rakPipeline().get(RakSessionCodec.class);
-        return codec == null ? -1 : codec.getPing();
+        // The sliding window's smoothed RTT, steadier than the last ping/pong pair.
+        return codec == null ? -1 : Math.round(codec.getRTT());
     }
 
     public boolean isBedrockConnected() {

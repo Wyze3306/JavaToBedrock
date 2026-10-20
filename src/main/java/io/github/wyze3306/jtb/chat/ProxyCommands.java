@@ -2,24 +2,26 @@ package io.github.wyze3306.jtb.chat;
 
 import io.github.wyze3306.jtb.JavaToBedrock;
 import io.github.wyze3306.jtb.chat.CommandTree.Node;
+import io.github.wyze3306.jtb.network.bedrock.BedrockReconnect;
+import io.github.wyze3306.jtb.network.bedrock.BedrockServers;
 import io.github.wyze3306.jtb.network.java.JavaKeepAlive;
 import io.github.wyze3306.jtb.network.java.JavaServer;
 import io.github.wyze3306.jtb.session.ProxySession;
-import io.netty.channel.Channel;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.cloudburstmc.netty.channel.raknet.RakChannel;
-import org.cloudburstmc.netty.handler.codec.raknet.common.RakSessionCodec;
 import org.cloudburstmc.protocol.bedrock.BedrockClientSession;
 import org.cloudburstmc.protocol.bedrock.codec.BedrockCodec;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.ClientboundSystemChatPacket;
 
+import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Locale;
 
 /**
- * {@code /jtb [info|version|ping]}, answered by the proxy itself. Only offered when the Bedrock
- * server has no command of that name, in which case the server's command wins.
+ * {@code /jtb [info|version|ping|server [name]]}, answered by the proxy itself. Only offered when the
+ * Bedrock server has no command of that name, in which case the server's command wins.
+ * {@code server} lists the Bedrock servers of {@code bedrock.servers} and moves the player to one;
+ * it exists only when such servers are configured.
  */
 final class ProxyCommands {
 
@@ -30,7 +32,7 @@ final class ProxyCommands {
     }
 
     /** The {@code /jtb} branch of the Java command tree. */
-    static Node node() {
+    static Node node(ProxySession session) {
         Node command = Node.literal(NAME);
         command.executable = true;
         for (String subcommand : SUBCOMMANDS) {
@@ -38,7 +40,21 @@ final class ProxyCommands {
             node.executable = true;
             command.children.put(Node.literalKey(subcommand), node);
         }
+        if (hasServers(session)) {
+            Node server = Node.literal("server");
+            server.executable = true;
+            for (BedrockServers.Target target : session.proxy().bedrockConnector().servers().all()) {
+                Node name = Node.literal(target.name());
+                name.executable = true;
+                server.children.put(Node.literalKey(target.name()), name);
+            }
+            command.children.put(Node.literalKey("server"), server);
+        }
         return command;
+    }
+
+    private static boolean hasServers(ProxySession session) {
+        return !session.config().bedrock().servers().isEmpty();
     }
 
     static void execute(ProxySession session, String arguments) {
@@ -52,8 +68,45 @@ final class ProxyCommands {
             }
             case "version" -> send(session, version(session));
             case "ping" -> send(session, ping(session));
-            default -> send(session, Component.text("Usage : /jtb [info|version|ping]", NamedTextColor.RED));
+            default -> {
+                String[] words = arguments.strip().split("\\s+");
+                if (words[0].equalsIgnoreCase("server") && hasServers(session)) {
+                    server(session, words.length > 1 ? words[1] : null);
+                } else {
+                    send(session, Component.text("Usage : /jtb [info|version|ping" + (hasServers(session) ? "|server [nom]" : "") + "]",
+                            NamedTextColor.RED));
+                }
+            }
         }
+    }
+
+    private static void server(ProxySession session, String name) {
+        BedrockServers servers = session.proxy().bedrockConnector().servers();
+        InetSocketAddress current = session.get(BedrockReconnect.KEY).server();
+        if (name == null) {
+            Component list = Component.text("Serveurs : ", NamedTextColor.GOLD);
+            boolean first = true;
+            for (BedrockServers.Target target : servers.all()) {
+                boolean here = current != null && current.equals(target.address());
+                list = list.append(Component.text((first ? "" : ", ") + target.name() + (here ? " (ici)" : ""),
+                        here ? NamedTextColor.GREEN : NamedTextColor.WHITE));
+                first = false;
+            }
+            send(session, list);
+            return;
+        }
+        BedrockServers.Target target = servers.byName(name);
+        if (target == null) {
+            send(session, Component.text("Serveur inconnu : " + name, NamedTextColor.RED));
+            return;
+        }
+        InetSocketAddress address = target.address();
+        if (address.equals(current)) {
+            send(session, Component.text("Vous êtes déjà sur " + target.name() + ".", NamedTextColor.GRAY));
+            return;
+        }
+        send(session, Component.text("Connexion à " + target.name() + "…", NamedTextColor.GRAY));
+        session.switchServer(address);
     }
 
     private static Component version(ProxySession session) {
@@ -66,24 +119,8 @@ final class ProxyCommands {
 
     private static Component ping(ProxySession session) {
         int java = session.get(JavaKeepAlive.KEY).latencyMs();
-        long bedrock = bedrockPing(session);
+        long bedrock = session.bedrockPingMillis();
         return line("Latence : ", "Java " + java + " ms, Bedrock " + (bedrock < 0 ? "?" : bedrock + " ms"));
-    }
-
-    /** RakNet round trip of the Bedrock connection, or -1 when unknown. */
-    private static long bedrockPing(ProxySession session) {
-        BedrockClientSession bedrock = session.bedrockSession();
-        if (bedrock == null) {
-            return -1;
-        }
-        Channel channel = bedrock.getPeer().getChannel();
-        if (channel instanceof RakChannel rak) {
-            RakSessionCodec codec = rak.rakPipeline().get(RakSessionCodec.class);
-            if (codec != null) {
-                return Math.round(codec.getRTT());
-            }
-        }
-        return -1;
     }
 
     private static Component line(String label, String value) {

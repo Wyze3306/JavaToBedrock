@@ -223,7 +223,7 @@ public final class ChatState implements SessionState, CommandTree.SuggestionData
         CommandTreeBuilder builder = new CommandTreeBuilder(this.commandData).addAll(this.commandData, this.commandsEnabled);
         builder.addHelpIfMissing();
         if (!this.commandsByName.containsKey(ProxyCommands.NAME)) {
-            builder.addTopLevel(ProxyCommands.node());
+            builder.addTopLevel(ProxyCommands.node(this.session));
         }
         CommandTree built = builder.build();
         this.tree = built;

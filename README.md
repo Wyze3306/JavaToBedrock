@@ -102,6 +102,10 @@ bedrock:
     survie.example.org: survie
 ```
 
+Les joueurs Java changent eux-mêmes de serveur avec **`/jtb server <nom>`** (`/jtb server` liste les
+serveurs). La commande `/jtb` donne aussi `info`, `version` et `ping` ; elle n'est proposée que si le
+serveur Bedrock n'a pas sa propre commande `jtb`.
+
 ## Salle d'attente (redémarrages du serveur Bedrock)
 
 Quand le serveur Bedrock s'arrête, redémarre ou plante, les joueurs Java **ne sont pas déconnectés** :
