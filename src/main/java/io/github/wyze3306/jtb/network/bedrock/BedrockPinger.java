@@ -28,8 +28,10 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -44,6 +46,8 @@ public final class BedrockPinger implements AutoCloseable {
     private static final long INTERVAL_SECONDS = 5;
     /** A pong older than this means the server is down. */
     private static final long STALE_MILLIS = TimeUnit.SECONDS.toMillis(20);
+    /** Server addresses are resolved again every this many pings (30 s), on a worker thread. */
+    private static final int DNS_REFRESH_PINGS = 6;
 
     /**
      * The last Bedrock pong.
@@ -54,6 +58,9 @@ public final class BedrockPinger implements AutoCloseable {
 
     private final JavaToBedrock proxy;
     private final Map<InetSocketAddress, Status> statuses = new ConcurrentHashMap<>();
+    /** Addresses pinged last, the only ones whose pongs are kept (channel event loop). */
+    private Set<InetSocketAddress> expected = Set.of();
+    private long pings;
     private @Nullable Channel channel;
     private @Nullable ScheduledFuture<?> task;
     private byte @Nullable [] icon;
@@ -99,15 +106,27 @@ public final class BedrockPinger implements AutoCloseable {
         if (channel == null || !channel.isOpen()) {
             return;
         }
-        for (BedrockServers.Target target : this.proxy.bedrockConnector().servers().all()) {
-            InetSocketAddress address = target.address();
+        BedrockServers servers = this.proxy.bedrockConnector().servers();
+        if (++this.pings % DNS_REFRESH_PINGS == 0) {
+            this.proxy.workers().execute(servers::refresh);
+        }
+        Set<InetSocketAddress> expected = new HashSet<>();
+        for (BedrockServers.Target target : servers.all()) {
+            InetSocketAddress address = servers.address(target);
             if (!address.isUnresolved()) {
+                expected.add(address);
                 channel.writeAndFlush(new RakPing(System.currentTimeMillis(), address));
             }
         }
+        this.expected = expected;
+        this.statuses.keySet().retainAll(expected);
     }
 
     private void onPong(InetSocketAddress server, BedrockPong pong) {
+        if (!this.expected.contains(server)) {
+            // Only the servers we ping may fill the table (and the log).
+            return;
+        }
         Status status = new Status(nullToEmpty(pong.motd()), nullToEmpty(pong.subMotd()), pong.protocolVersion(),
                 nullToEmpty(pong.version()), Math.max(0, pong.playerCount()), Math.max(0, pong.maximumPlayerCount()),
                 System.currentTimeMillis());
@@ -121,7 +140,8 @@ public final class BedrockPinger implements AutoCloseable {
 
     /** The last answer of the default server, or null when it never answered or stopped answering. */
     public @Nullable Status status() {
-        return status(this.proxy.bedrockConnector().servers().defaultTarget().address());
+        BedrockServers servers = this.proxy.bedrockConnector().servers();
+        return status(servers.address(servers.defaultTarget()));
     }
 
     /** The last answer of {@code server}, or null when it never answered or stopped answering. */
@@ -139,7 +159,8 @@ public final class BedrockPinger implements AutoCloseable {
      */
     public ServerStatusInfo buildJavaStatus(@Nullable String host) {
         ProxyConfig.Java config = this.proxy.config().java();
-        Status status = status(this.proxy.bedrockConnector().servers().forJavaHost(host).address());
+        BedrockServers servers = this.proxy.bedrockConnector().servers();
+        Status status = status(servers.address(servers.forJavaHost(host)));
         Component description;
         if (!config.motd().isEmpty()) {
             description = BedrockText.legacyToComponent(config.motd().replace("\\n", "\n"));

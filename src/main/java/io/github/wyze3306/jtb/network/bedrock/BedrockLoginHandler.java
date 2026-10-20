@@ -27,6 +27,7 @@ import org.cloudburstmc.protocol.bedrock.packet.StartGamePacket;
 import org.jose4j.jws.JsonWebSignature;
 
 import javax.crypto.SecretKey;
+import java.net.InetSocketAddress;
 import java.security.PublicKey;
 import java.util.Base64;
 
@@ -110,9 +111,12 @@ final class BedrockLoginHandler {
             return;
         }
         try {
+            // The server actually joined (forced host, transfer), as a Bedrock client reports it.
+            InetSocketAddress server = this.session.get(BedrockReconnect.KEY).server();
             var config = this.session.config().bedrock();
+            String serverAddress = server == null ? config.address() + ":" + config.port() : server.getHostString() + ":" + server.getPort();
             String clientJwt = ClientDataBuilder.build(this.session, loginData.keyPair(), skin,
-                    this.codec.getMinecraftVersion(), config.address() + ":" + config.port());
+                    this.codec.getMinecraftVersion(), serverAddress);
             LoginPacket packet = new LoginPacket();
             packet.setClientNetworkVersion(this.codec.getProtocolVersion());
             packet.setAuthenticationType(loginData.type());

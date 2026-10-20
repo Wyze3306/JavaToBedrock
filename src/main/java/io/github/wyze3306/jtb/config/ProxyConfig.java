@@ -262,12 +262,22 @@ public final class ProxyConfig {
             return map;
         }
 
+        /**
+         * A boolean; text values (environment variables) accept true/false, yes/no, on/off and 1/0, and
+         * anything else is an error rather than a silent false (JTB_JAVA_ONLINE_MODE=1 must not turn
+         * Mojang authentication off).
+         */
         boolean bool(String key) {
             Object value = raw(key);
             if (value instanceof Boolean b) {
                 return b;
             }
-            return Boolean.parseBoolean(value.toString().trim());
+            return switch (value.toString().trim().toLowerCase(Locale.ROOT)) {
+                case "true", "yes", "on", "1" -> true;
+                case "false", "no", "off", "0" -> false;
+                default -> throw new IllegalArgumentException("Configuration value " + this.path + key
+                        + " must be true or false (got '" + value + "')");
+            };
         }
     }
 }

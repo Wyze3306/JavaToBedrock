@@ -67,4 +67,15 @@ class ProxyConfigTest {
         assertEquals(java.util.List.of("Bye", "Restarting"), fromEnv.bedrock().reconnect().shutdownMessages());
         assertEquals(0, fromEnv.bedrock().reconnect().timeoutSeconds());
     }
+
+    @Test
+    void booleansFromTextAreStrict(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("config.yml");
+        Files.writeString(file, "java:\n  online-mode: true\n");
+        assertEquals(true, ProxyConfig.load(file, Map.of("JTB_JAVA_ONLINE_MODE", "1")::get).java().onlineMode());
+        assertEquals(true, ProxyConfig.load(file, Map.of("JTB_JAVA_ONLINE_MODE", "Yes")::get).java().onlineMode());
+        assertEquals(false, ProxyConfig.load(file, Map.of("JTB_JAVA_ONLINE_MODE", "off")::get).java().onlineMode());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> ProxyConfig.load(file, Map.of("JTB_JAVA_ONLINE_MODE", "ture")::get));
+    }
 }

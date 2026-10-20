@@ -74,6 +74,8 @@ public final class JavaConfiguration implements SessionState {
     private boolean bedrockReady;
     private int resourcePackHolds;
     private boolean finishSent;
+    /** A server switch started after FinishConfiguration was sent but before the client finished. */
+    private boolean switchAfterFinish;
     private boolean reconfiguring;
     private boolean reconfigurationAcknowledged;
     private @Nullable ScheduledFuture<?> readyTimeout;
@@ -96,6 +98,16 @@ public final class JavaConfiguration implements SessionState {
     }
 
     void begin() {
+        runContributors();
+        this.session.sendJavaDirect(new ClientboundCustomPayloadPacket(Key.key("minecraft:brand"),
+                encodeString(JavaToBedrock.NAME)));
+        this.session.sendJavaDirect(new ClientboundSelectKnownPacks(List.of(
+                new KnownPack("minecraft", "core", JavaServer.javaVersionName()))));
+        scheduleReadyTimeout();
+    }
+
+    /** The contributions are server independent: run again whenever the extra entries are reset. */
+    private void runContributors() {
         List<Consumer<JavaConfiguration>> contributors;
         synchronized (CONTRIBUTORS) {
             contributors = List.copyOf(CONTRIBUTORS.values());
@@ -107,11 +119,6 @@ public final class JavaConfiguration implements SessionState {
                 this.session.logger().error("[{}] Configuration contribution failed", this.session.getName(), e);
             }
         }
-        this.session.sendJavaDirect(new ClientboundCustomPayloadPacket(Key.key("minecraft:brand"),
-                encodeString(JavaToBedrock.NAME)));
-        this.session.sendJavaDirect(new ClientboundSelectKnownPacks(List.of(
-                new KnownPack("minecraft", "core", JavaServer.javaVersionName()))));
-        scheduleReadyTimeout();
     }
 
     private void scheduleReadyTimeout() {
@@ -119,13 +126,20 @@ public final class JavaConfiguration implements SessionState {
             this.readyTimeout.cancel(false);
         }
         this.readyTimeout = this.session.schedule(() -> {
-            if (!this.bedrockReady && !this.session.get(BedrockReconnect.KEY).isWaiting()) {
-                // Without StartGame there is no Java login packet to send: the client cannot play.
-                this.session.logger().warn("[{}] Bedrock server did not start the game within {}s",
-                        this.session.getName(), BEDROCK_READY_TIMEOUT_SECONDS);
-                this.session.disconnect(Component.translatable("disconnect.timeout")
-                        .append(Component.text(" (serveur Bedrock)")));
+            if (this.bedrockReady) {
+                return;
             }
+            BedrockReconnect reconnect = this.session.get(BedrockReconnect.KEY);
+            // In the waiting room, a retry that connected but never got StartGame (server still
+            // starting) is dropped and retried, until the waiting room gives up.
+            if (reconnect.isWaiting() && reconnect.onConnectionLost(Component.text("pas de réponse"))) {
+                return;
+            }
+            // Without StartGame there is no Java login packet to send: the client cannot play.
+            this.session.logger().warn("[{}] Bedrock server did not start the game within {}s",
+                    this.session.getName(), BEDROCK_READY_TIMEOUT_SECONDS);
+            this.session.disconnect(Component.translatable("disconnect.timeout")
+                    .append(Component.text(" (serveur Bedrock)")));
         }, BEDROCK_READY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
 
@@ -311,6 +325,13 @@ public final class JavaConfiguration implements SessionState {
         this.reconfiguring = false;
         this.session.enterGame();
         this.session.get(JavaKeepAlive.KEY).setPaused(false);
+        if (this.switchAfterFinish) {
+            // The server was left while the client was finishing: configure again for the next one.
+            this.switchAfterFinish = false;
+            startReconfiguration();
+            runContributors();
+            return;
+        }
         List<Runnable> listeners = List.copyOf(this.gameStartListeners);
         this.gameStartListeners.clear();
         for (Runnable listener : listeners) {
@@ -349,7 +370,8 @@ public final class JavaConfiguration implements SessionState {
      * {@link #pushResourcePack}.
      */
     public boolean isConfiguring() {
-        return this.session.javaPhase() == ProxySession.JavaPhase.CONFIGURATION;
+        // Once FinishConfiguration is sent the client may already decode play packets.
+        return this.session.javaPhase() == ProxySession.JavaPhase.CONFIGURATION && !this.finishSent;
     }
 
     /**
@@ -359,9 +381,18 @@ public final class JavaConfiguration implements SessionState {
     public void startServerSwitch() {
         this.bedrockReady = false;
         this.extraEntries.clear();
+        this.extraTags.clear();
         this.pendingPacks.clear();
         this.resourcePackHolds = 0;
-        startReconfiguration();
+        // Registered for the server being left.
+        this.gameStartListeners.clear();
+        if (this.session.javaPhase() == ProxySession.JavaPhase.CONFIGURATION && this.finishSent) {
+            // FinishConfiguration is on its way: reconfigure as soon as the client reaches the game.
+            this.switchAfterFinish = true;
+        } else {
+            startReconfiguration();
+            runContributors();
+        }
         scheduleReadyTimeout();
     }
 

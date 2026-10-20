@@ -49,7 +49,9 @@ docker run -d -p 25565:25565 -p 8765:8765 -v ./jtb:/data \
 `docker/docker-compose.yml` lance un serveur PowerNukkitX et le proxy devant lui.
 Chaque option de `config.yml` peut être remplacée par une variable d'environnement `JTB_` + son
 chemin en majuscules, points et tirets remplacés par `_` : `bedrock.address` → `JTB_BEDROCK_ADDRESS`,
-`resource-packs.public-url` → `JTB_RESOURCE_PACKS_PUBLIC_URL`.
+`resource-packs.public-url` → `JTB_RESOURCE_PACKS_PUBLIC_URL`. Une variable définie, même vide,
+remplace `config.yml`. Sous Kubernetes, évitez un service nommé `jtb-…` (ses variables
+`JTB_…_PORT=tcp://…` seraient lues comme des options) ou mettez `enableServiceLinks: false`.
 
 ## Authentification côté Bedrock
 

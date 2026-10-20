@@ -85,19 +85,29 @@ public final class BedrockConnector implements AutoCloseable {
      * Authenticates the player (configured {@link io.github.wyze3306.jtb.auth.AuthProvider}) and
      * fetches their skin in parallel, then connects. Authentication happens before the Bedrock
      * connection exists so a slow sign-in (Microsoft device code) cannot time the connection out.
+     * Session event loop.
      */
     public void start(ProxySession session) {
-        start(session, this.servers.forJavaHost(session.getJavaHost()).address());
+        start(session, this.servers.address(this.servers.forJavaHost(session.getJavaHost())));
     }
 
-    /** Same as {@link #start(ProxySession)} with an explicit server (Bedrock transfers). */
+    /**
+     * Same as {@link #start(ProxySession)} with an explicit server. Starting a connection supersedes
+     * any earlier attempt of the session: whatever that attempt still does (late failure, late
+     * success) is ignored. Session event loop.
+     */
     public void start(ProxySession session, InetSocketAddress target) {
-        session.get(BedrockReconnect.KEY).connecting(target);
+        BedrockReconnect reconnect = session.get(BedrockReconnect.KEY);
+        int attempt = reconnect.connecting(target);
         CompletableFuture<LoginData> identity = this.proxy.authProvider().login(session);
         CompletableFuture<BedrockSkinData> skin = JavaSkinProvider.forProfile(session.getProfile(),
                 this.proxy.config().features().javaSkins(), this.proxy.service(SignedSkins.class));
         identity.thenCombine(skin, (loginData, skinData) -> {
-            session.execute(() -> connect(session, target, loginData, skinData));
+            session.execute(() -> {
+                if (reconnect.isCurrent(attempt)) {
+                    connect(session, target, loginData, skinData, attempt);
+                }
+            });
             return null;
         }).exceptionally(error -> {
             LOGGER.warn("[{}] Bedrock authentication failed", session.getName(), error);
@@ -105,6 +115,19 @@ public final class BedrockConnector implements AutoCloseable {
                     .append(Component.text(String.valueOf(rootMessage(error)), NamedTextColor.GRAY)));
             return null;
         });
+    }
+
+    /**
+     * {@link #start(ProxySession, InetSocketAddress)} for a host name, resolved on a worker thread so
+     * a slow DNS lookup never blocks an event loop (Bedrock transfers, waiting room retries).
+     */
+    public void start(ProxySession session, String host, int port) {
+        CompletableFuture.supplyAsync(() -> new InetSocketAddress(host, port), this.proxy.workers())
+                .thenAccept(address -> session.execute(() -> {
+                    if (!session.isClosed()) {
+                        start(session, address);
+                    }
+                }));
     }
 
     private static Object rootMessage(Throwable error) {
@@ -116,16 +139,17 @@ public final class BedrockConnector implements AutoCloseable {
     }
 
     /**
-     * Connects the session to the configured Bedrock server and runs the login with {@code login}.
-     * Kicks the Java player with an explanation when the server cannot be reached.
+     * Connects the session to a Bedrock server and runs the login with {@code login}. When the server
+     * cannot be reached the player waits in the waiting room or is kicked with an explanation.
      */
-    public void connect(ProxySession session, InetSocketAddress address, LoginData login, BedrockSkinData skin) {
+    private void connect(ProxySession session, InetSocketAddress address, LoginData login, BedrockSkinData skin, int attempt) {
         if (session.isClosed()) {
             return;
         }
         session.setXuid(login.xuid());
         ProxyConfig.Bedrock config = this.proxy.config().bedrock();
         BedrockCodec codec = codecForServer(address);
+        BedrockReconnect reconnect = session.get(BedrockReconnect.KEY);
 
         Bootstrap bootstrap = new Bootstrap()
                 .group(this.group)
@@ -139,14 +163,22 @@ public final class BedrockConnector implements AutoCloseable {
                 .handler(new BedrockClientInitializer() {
                     @Override
                     protected void initSession(BedrockClientSession bedrock) {
+                        // Netty thread: everything that touches the session state hops to its loop.
                         bedrock.setCodec(codec);
                         CodecRegistries.install(bedrock);
-                        session.setBedrockSession(bedrock);
                         bedrock.setPacketHandler(new BedrockPacketDispatcher(session, bedrock,
                                 new BedrockLoginHandler(session, bedrock, codec, login, skin)));
-                        RequestNetworkSettingsPacket request = new RequestNetworkSettingsPacket();
-                        request.setClientNetworkVersion(codec.getProtocolVersion());
-                        bedrock.sendPacketImmediately(request);
+                        session.execute(() -> {
+                            if (session.isClosed() || !reconnect.isCurrent(attempt)) {
+                                // Superseded by a server switch while connecting.
+                                bedrock.disconnect("Superseded");
+                                return;
+                            }
+                            session.setBedrockSession(bedrock);
+                            RequestNetworkSettingsPacket request = new RequestNetworkSettingsPacket();
+                            request.setClientNetworkVersion(codec.getProtocolVersion());
+                            bedrock.sendPacketImmediately(request);
+                        });
                     }
                 });
 
@@ -155,10 +187,13 @@ public final class BedrockConnector implements AutoCloseable {
         ChannelFuture future = bootstrap.connect(address);
         future.addListener(result -> {
             if (!result.isSuccess()) {
-                LOGGER.warn("[{}] Could not reach the Bedrock server {}:{}: {}", session.getName(),
-                        address.getHostString(), address.getPort(), result.cause() == null ? "?" : result.cause().toString());
                 session.execute(() -> {
-                    if (session.get(BedrockReconnect.KEY).onConnectionLost(Component.text("injoignable"))) {
+                    if (!reconnect.isCurrent(attempt)) {
+                        return;
+                    }
+                    LOGGER.warn("[{}] Could not reach the Bedrock server {}:{}: {}", session.getName(),
+                            address.getHostString(), address.getPort(), result.cause() == null ? "?" : result.cause().toString());
+                    if (reconnect.onConnectionLost(Component.text("injoignable"))) {
                         return;
                     }
                     session.disconnect(Component.text("Impossible de joindre le serveur Bedrock ", NamedTextColor.RED)

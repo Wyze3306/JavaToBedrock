@@ -26,5 +26,6 @@ services:
       # offline : mettre settings.xboxAuth à false dans pnx/pnx.yml.
       # trusted : recommandé, voir le README (section java-bridge de pnx.yml).
       JTB_BEDROCK_AUTH: offline
-      # Adresse publique du serveur HTTP des packs vue par les joueurs Java.
-      JTB_RESOURCE_PACKS_PUBLIC_URL: ""
+      # Adresse publique du serveur HTTP des packs vue par les joueurs Java (sinon déduite de
+      # l'adresse tapée par le joueur) :
+      # JTB_RESOURCE_PACKS_PUBLIC_URL: "http://mon.domaine:8765"
