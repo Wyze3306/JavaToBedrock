@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -17,8 +18,9 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Disk cache of downloaded Bedrock packs ({@code bedrock/<id>_<version>.zip}) and converted Java
- * packs ({@code java/<sha1>.zip}).
+ * Disk cache of downloaded Bedrock packs ({@code bedrock/<id>_<version>.zip}), converted Java
+ * packs ({@code java/<sha1>.zip}) and the conversion index ({@code index/<key>}: conversion key ->
+ * Java pack SHA-1, {@code index/stack-<fingerprint>} -> last conversion key of a stack).
  */
 public final class PackCache {
 
@@ -68,6 +70,10 @@ public final class PackCache {
         }
     }
 
+    public boolean hasJavaPack(String sha1) {
+        return Files.isRegularFile(this.root.resolve("java").resolve(sha1 + ".zip"));
+    }
+
     public void writeJavaPack(String sha1, byte[] zip) {
         write(this.root.resolve("java").resolve(sha1 + ".zip"), zip);
     }
@@ -83,7 +89,7 @@ public final class PackCache {
     }
 
     public void writeIndex(String key, String value) {
-        write(this.root.resolve("index").resolve(key), value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        write(this.root.resolve("index").resolve(key), value.getBytes(StandardCharsets.UTF_8));
     }
 
     private static void write(Path file, byte[] data) {

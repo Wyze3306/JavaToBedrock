@@ -1,6 +1,7 @@
 package io.github.wyze3306.jtb.network.bedrock;
 
 import io.github.wyze3306.jtb.item.ItemRegistry;
+import io.github.wyze3306.jtb.resourcepack.ResourcePackState;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.text.BedrockDisconnects;
 import io.netty.util.ReferenceCountUtil;
@@ -41,7 +42,11 @@ final class BedrockPacketDispatcher implements BedrockPacketHandler {
         // Must happen before the next packet of the batch is decoded, so on this (Netty) thread.
         DefinitionRegistry<ItemDefinition> items = CodecRegistries.onDecoded(this.bedrock, packet);
         if (items != null && packet instanceof ItemRegistryPacket registry) {
-            this.session.execute(() -> this.session.get(ItemRegistry.KEY).load(registry.getItemData(), items));
+            this.session.execute(() -> {
+                this.session.get(ItemRegistry.KEY).load(registry.getItemData(), items);
+                // The converted resource pack waits for the custom item definitions.
+                this.session.get(ResourcePackState.KEY).onItemRegistry();
+            });
         }
         ReferenceCountUtil.retain(packet);
         this.session.execute(() -> {

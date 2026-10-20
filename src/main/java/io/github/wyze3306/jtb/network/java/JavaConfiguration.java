@@ -3,6 +3,7 @@ package io.github.wyze3306.jtb.network.java;
 import io.github.wyze3306.jtb.JavaToBedrock;
 import io.github.wyze3306.jtb.network.bedrock.BedrockReconnect;
 import io.github.wyze3306.jtb.mapping.JavaRegistries;
+import io.github.wyze3306.jtb.resourcepack.ResourcePackState;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
 import io.github.wyze3306.jtb.session.StateKey;
@@ -245,6 +246,7 @@ public final class JavaConfiguration implements SessionState {
     }
 
     void onResourcePackStatus(UUID id, ResourcePackStatus status) {
+        this.session.get(ResourcePackState.KEY).onClientStatus(id, status);
         switch (status) {
             case ACCEPTED, DOWNLOADED -> {
                 return;
