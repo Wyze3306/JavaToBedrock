@@ -13,13 +13,16 @@ import org.cloudburstmc.nbt.NbtMap;
 import org.cloudburstmc.nbt.NbtType;
 import org.junit.jupiter.api.Test;
 
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -50,7 +53,7 @@ class ConverterTest {
         return files;
     }
 
-    private static java.awt.image.BufferedImage image(Map<String, byte[]> files, String path) {
+    private static BufferedImage image(Map<String, byte[]> files, String path) {
         byte[] data = files.get(path);
         assertNotNull(data, path + " missing");
         return PackImages.decode(path, data);
@@ -140,7 +143,7 @@ class ConverterTest {
             ZipEntry entry;
             while ((entry = in.getNextEntry()) != null) {
                 names.add(entry.getName());
-                assertEquals(java.time.LocalDateTime.of(2020, 1, 1, 0, 0), entry.getTimeLocal());
+                assertEquals(LocalDateTime.of(2020, 1, 1, 0, 0), entry.getTimeLocal());
             }
         }
         List<String> sorted = new ArrayList<>(names);
@@ -159,7 +162,7 @@ class ConverterTest {
     @Test
     void unreadablePacksAreSkipped() throws IOException {
         List<BedrockPack> packs = new ArrayList<>(e2eStack());
-        packs.add(TestPacks.pack(java.util.UUID.randomUUID(), new byte[]{1, 2, 3}));
+        packs.add(TestPacks.pack(UUID.randomUUID(), new byte[]{1, 2, 3}));
         Map<String, byte[]> files = unzip(BedrockToJavaConverter.convert(packs, ServerDefinitions.EMPTY).zip());
         assertTrue(files.containsKey("assets/minecraft/textures/block/stone.png"));
     }

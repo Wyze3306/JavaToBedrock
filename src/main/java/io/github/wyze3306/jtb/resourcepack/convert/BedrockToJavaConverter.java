@@ -6,6 +6,7 @@ import io.github.wyze3306.jtb.resourcepack.ServerDefinitions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -126,6 +127,17 @@ public final class BedrockToJavaConverter {
         Map<String, Integer> counters = new TreeMap<>(stack.context.counters());
         context.counters().forEach((k, v) -> counters.merge(k, v, Integer::sum));
         return new ConvertedZip(context.writer().toZip(), context.artifacts(), counters);
+    }
+
+    /**
+     * Loads the static tables and initialises the image codecs, so the first player's conversion
+     * does not pay for it (a few hundred milliseconds). Blocking: call from a worker.
+     */
+    public static void warmUp() {
+        ResourceTables.get();
+        byte[] png = PackImages.encodePng(new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB));
+        PackImages.decode("warm-up.png", png);
+        complete(convertStack(List.of()), ServerDefinitions.EMPTY);
     }
 
     /** Both phases at once (tests, tools). */

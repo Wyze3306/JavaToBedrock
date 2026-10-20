@@ -11,6 +11,7 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -70,7 +71,8 @@ final class CustomBlockConverter {
             }
             Appearance appearance;
             try {
-                appearance = appearance(context, carrier, models.computeIfAbsent(carrier.bedrockIdentifier(), k -> new HashMap<>()));
+                appearance = appearance(context, carrier,
+                        models.computeIfAbsent(carrier.bedrockIdentifier(), k -> new HashMap<>()));
             } catch (RuntimeException e) {
                 LOGGER.debug("Custom block {} not converted", carrier.bedrockIdentifier(), e);
                 appearance = null;
@@ -111,7 +113,7 @@ final class CustomBlockConverter {
             models.put(json, index);
             String modelId = JavaAssetNames.customBlockModel(carrier.bedrockIdentifier(), index);
             context.writer().put("assets/" + JavaAssetNames.NAMESPACE + "/models/" + modelId.substring(modelId.indexOf(':') + 1)
-                    + ".json", json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    + ".json", json.getBytes(StandardCharsets.UTF_8));
         }
         NbtMap transformation = components.getCompound("minecraft:transformation");
         int x = Math.floorMod(-transformation.getInt("RX", 0) * 90, 360);
@@ -261,7 +263,8 @@ final class CustomBlockConverter {
         return states;
     }
 
-    private static void writeBlockstate(ConversionContext context, ResourceTables.Carrier carrier, Map<String, Appearance> custom) {
+    private static void writeBlockstate(ConversionContext context, ResourceTables.Carrier carrier,
+                                        Map<String, Appearance> custom) {
         JsonObject vanilla = carrier.blockstate();
         JsonObject blockstate = new JsonObject();
         List<Map<String, String>> states = allStates(carrier);
@@ -285,19 +288,22 @@ final class CustomBlockConverter {
             for (JsonElement element : parts) {
                 JsonObject part = element.getAsJsonObject();
                 List<Map<String, String>> matching = new ArrayList<>();
-                boolean allMatch = true;
+                boolean customMatches = false;
                 for (Map<String, String> state : states) {
-                    if (!custom.containsKey(stateKey(carrier, state)) && matches(part.get("when"), state)) {
-                        matching.add(state);
-                    } else if (matches(part.get("when"), state)) {
-                        allMatch = false;
+                    if (matches(part.get("when"), state)) {
+                        if (custom.containsKey(stateKey(carrier, state))) {
+                            customMatches = true;
+                        } else {
+                            matching.add(state);
+                        }
                     }
                 }
                 if (matching.isEmpty()) {
                     continue;
                 }
                 JsonObject copy = part.deepCopy();
-                if (!allMatch) {
+                if (customMatches) {
+                    // Restrict the vanilla part to the vanilla states it applied to.
                     JsonArray or = new JsonArray();
                     for (Map<String, String> state : matching) {
                         or.add(condition(state));

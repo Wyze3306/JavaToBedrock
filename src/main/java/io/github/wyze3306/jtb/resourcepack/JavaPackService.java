@@ -82,6 +82,13 @@ public final class JavaPackService implements ProxyService {
         server.start();
         this.http = server;
         LOGGER.info("Resource pack HTTP server listening on {}:{}", config.httpBind(), server.getAddress().getPort());
+        workers().execute(() -> {
+            try {
+                BedrockToJavaConverter.warmUp();
+            } catch (RuntimeException e) {
+                LOGGER.warn("Resource pack converter warm-up failed", e);
+            }
+        });
     }
 
     /** {@code GET|HEAD /packs/<sha1>.zip}: the converted pack, from memory or the disk cache. */

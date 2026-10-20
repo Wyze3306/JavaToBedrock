@@ -8,7 +8,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Map;
 import java.util.TreeMap;
 
 /**
@@ -60,9 +59,5 @@ public record ServerDefinitions(List<CustomItem> items, List<CustomBlockCarrier>
     /** True when there is nothing for the second phase to convert. */
     public boolean isEmpty() {
         return this.items.isEmpty() && this.blocks.isEmpty();
-    }
-
-    static String key(Map<String, String> properties) {
-        return new TreeMap<>(properties).toString();
     }
 }

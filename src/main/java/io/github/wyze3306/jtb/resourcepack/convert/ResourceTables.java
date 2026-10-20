@@ -109,7 +109,8 @@ public final class ResourceTables {
                 p.get(1).getAsJsonArray().forEach(v -> values.add(v.getAsString()));
                 properties.add(new Property(p.get(0).getAsString(), List.copyOf(values)));
             }
-            carriers.put(entry.getKey(), new Carrier(entry.getKey(), List.copyOf(properties), carrier.getAsJsonObject("blockstate")));
+            carriers.put(entry.getKey(), new Carrier(entry.getKey(), List.copyOf(properties),
+                    carrier.getAsJsonObject("blockstate")));
         }
         this.carriers = Collections.unmodifiableMap(carriers);
     }

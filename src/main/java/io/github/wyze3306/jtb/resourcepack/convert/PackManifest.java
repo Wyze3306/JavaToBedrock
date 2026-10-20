@@ -34,7 +34,7 @@ public record PackManifest(int formatVersion, @Nullable UUID uuid, String versio
     static PackManifest parse(JsonObject json) {
         int format = json.has("format_version") && json.get("format_version").isJsonPrimitive()
                 ? json.get("format_version").getAsInt() : 1;
-        JsonObject header = json.has("header") && json.get("header").isJsonObject() ? json.getAsJsonObject("header") : new JsonObject();
+        JsonObject header = json.get("header") instanceof JsonObject object ? object : new JsonObject();
         UUID uuid = null;
         try {
             uuid = header.has("uuid") ? UUID.fromString(header.get("uuid").getAsString().trim()) : null;

@@ -44,6 +44,8 @@ public final class ResourcePackState implements SessionState {
     private JavaPackService.@Nullable StackHandle stack;
     private List<CustomBlockCarrier> carriers = List.of();
     private boolean definitionsReady;
+    /** The pack was completed without the item registry (it came too late): redo it when it comes. */
+    private boolean completedWithoutRegistry;
     private boolean completing;
     private boolean holding;
     private @Nullable ScheduledFuture<?> definitionsTimeout;
@@ -77,6 +79,7 @@ public final class ResourcePackState implements SessionState {
                     this.session.logger().warn("[{}] No item registry from the Bedrock server after {}s: converting the "
                             + "resource pack without custom items", this.session.getName(), DEFINITIONS_TIMEOUT_SECONDS);
                     this.definitionsReady = true;
+                    this.completedWithoutRegistry = true;
                     tryComplete();
                 }
             }, DEFINITIONS_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -93,12 +96,20 @@ public final class ResourcePackState implements SessionState {
         this.carriers = List.copyOf(carriers);
     }
 
-    /** The server's item registry was loaded into {@link ItemRegistry}: the conversion can complete. */
+    /**
+     * The server's item registry was loaded into {@link ItemRegistry}: the conversion can complete.
+     * When it arrives after the pack was already sent without it, the pack is converted again and
+     * replaces the first one.
+     */
     public void onItemRegistry() {
         this.definitionsReady = true;
         if (this.definitionsTimeout != null) {
             this.definitionsTimeout.cancel(false);
             this.definitionsTimeout = null;
+        }
+        if (this.completedWithoutRegistry) {
+            this.completedWithoutRegistry = false;
+            this.completing = false;
         }
         tryComplete();
     }
@@ -109,7 +120,10 @@ public final class ResourcePackState implements SessionState {
             return;
         }
         switch (status) {
-            case SUCCESSFULLY_LOADED -> this.loaded = true;
+            case SUCCESSFULLY_LOADED -> {
+                this.loaded = true;
+                this.session.logger().info("[{}] The Java client loaded the converted resource pack", this.session.getName());
+            }
             case DECLINED, FAILED_DOWNLOAD, INVALID_URL, FAILED_RELOAD, DISCARDED -> this.loaded = false;
             default -> {
                 // ACCEPTED, DOWNLOADED: not final.

@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * The server's packs in stack order. {@code ResourcePackStack} lists the highest priority pack
@@ -37,7 +38,7 @@ public final class PackStack {
         for (PackFiles pack : this.topToBottom) {
             byte[] data = pack.get(path);
             if (data != null) {
-                return new PackFiles.PackFile(path.toLowerCase(java.util.Locale.ROOT), data);
+                return new PackFiles.PackFile(path.toLowerCase(Locale.ROOT), data);
             }
         }
         return null;

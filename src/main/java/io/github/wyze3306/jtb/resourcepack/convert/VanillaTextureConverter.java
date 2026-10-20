@@ -35,7 +35,8 @@ final class VanillaTextureConverter {
             for (String source : entry.getValue()) {
                 PackFiles.PackFile image = stack.image("textures/" + source);
                 if (image != null) {
-                    jobs.put(entry.getKey(), new Job(entry.getKey(), target(tables, source, entry.getKey()), source, source, image));
+                    ResourceTables.JavaTexture target = target(tables, source, entry.getKey());
+                    jobs.put(entry.getKey(), new Job(entry.getKey(), target, source, source, image));
                     break;
                 }
             }

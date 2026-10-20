@@ -198,7 +198,8 @@ public final class BedrockDefinitions {
         if (underscore != 2 && underscore != 3 || name.length() < underscore + 3) {
             return null;
         }
-        return name.substring(0, underscore).toLowerCase(Locale.ROOT) + "_" + name.substring(underscore + 1).toUpperCase(Locale.ROOT);
+        return name.substring(0, underscore).toLowerCase(Locale.ROOT) + "_"
+                + name.substring(underscore + 1).toUpperCase(Locale.ROOT);
     }
 
     // ------------------------------------------------------------------ access

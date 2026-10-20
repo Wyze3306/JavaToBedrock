@@ -55,7 +55,8 @@ final class EntityModelConverter {
             return null;
         }
         JsonObject controller = defaultController(context, description);
-        String geometryKey = controller == null ? null : reference(controller.get("geometry"), controller, "geometries", "geometry.");
+        String geometryKey = controller == null ? null
+                : reference(controller.get("geometry"), controller, "geometries", "geometry.");
         String textureKey = null;
         if (controller != null && controller.get("textures") instanceof JsonArray list && !list.isEmpty()) {
             textureKey = reference(list.get(0), controller, "textures", "texture.");
@@ -96,7 +97,8 @@ final class EntityModelConverter {
             modelTextures.addProperty("particle", texture);
             json.add("textures", modelTextures);
             context.writer().putJson("assets/" + JavaAssetNames.NAMESPACE + "/models/" + path + ".json", json);
-            context.writer().putJson("assets/" + JavaAssetNames.NAMESPACE + "/items/" + path + ".json", ItemModels.plain(itemModel));
+            context.writer().putJson("assets/" + JavaAssetNames.NAMESPACE + "/items/" + path + ".json",
+                    ItemModels.plain(itemModel));
             variants.put(variant, new ConversionArtifacts.Variant(itemModel, baked.scale(), 0.5f * baked.scale()));
             if (defaultVariant == null) {
                 defaultVariant = variant;
@@ -163,7 +165,8 @@ final class EntityModelConverter {
             int bracket = expression.indexOf('[');
             String name = (bracket < 0 ? expression : expression.substring(0, bracket)).trim();
             JsonArray values = null;
-            if (controller.get("arrays") instanceof JsonObject arrays && arrays.get(arrayCategory) instanceof JsonObject category) {
+            if (controller.get("arrays") instanceof JsonObject arrays
+                    && arrays.get(arrayCategory) instanceof JsonObject category) {
                 for (Map.Entry<String, JsonElement> array : category.entrySet()) {
                     if (array.getKey().equalsIgnoreCase(name) && array.getValue() instanceof JsonArray a && !a.isEmpty()) {
                         values = a;

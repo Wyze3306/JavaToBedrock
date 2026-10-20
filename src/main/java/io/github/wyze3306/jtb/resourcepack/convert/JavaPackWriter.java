@@ -82,7 +82,7 @@ public final class JavaPackWriter {
         }
         ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) Math.min(Integer.MAX_VALUE - 16, total / 2 + 4096));
         try (ZipOutputStream zip = new ZipOutputStream(bytes, StandardCharsets.UTF_8)) {
-            zip.setLevel(Deflater.BEST_COMPRESSION);
+            zip.setLevel(Deflater.DEFAULT_COMPRESSION);
             for (Map.Entry<String, byte[]> file : sorted.entrySet()) {
                 byte[] data = file.getValue();
                 ZipEntry entry = new ZipEntry(file.getKey());

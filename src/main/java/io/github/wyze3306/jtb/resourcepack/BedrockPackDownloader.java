@@ -182,7 +182,8 @@ public final class BedrockPackDownloader implements SessionState {
         int length = chunk.getChunkData().readableBytes();
         long offset = chunk.getByteOffset();
         if (offset < 0 || offset + length > download.data.length) {
-            this.session.logger().warn("[{}] Pack {} chunk {} out of bounds", this.session.getName(), chunk.getPackId(), chunk.getChunkID());
+            this.session.logger().warn("[{}] Pack {} chunk {} out of bounds", this.session.getName(), chunk.getPackId(),
+                    chunk.getChunkID());
             return;
         }
         chunk.getChunkData().getBytes(chunk.getChunkData().readerIndex(), download.data, (int) offset, length);

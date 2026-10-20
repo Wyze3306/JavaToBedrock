@@ -226,6 +226,7 @@ public record Geometry(String identifier, int textureWidth, int textureHeight, L
     private static boolean bool(JsonObject object, String key) {
         JsonElement element = object.get(key);
         return element != null && element.isJsonPrimitive()
-                && (element.getAsJsonPrimitive().isBoolean() ? element.getAsBoolean() : "true".equalsIgnoreCase(element.getAsString()));
+                && (element.getAsJsonPrimitive().isBoolean() ? element.getAsBoolean()
+                : "true".equalsIgnoreCase(element.getAsString()));
     }
 }

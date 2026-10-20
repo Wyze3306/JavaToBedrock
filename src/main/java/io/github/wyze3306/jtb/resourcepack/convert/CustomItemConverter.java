@@ -11,6 +11,7 @@ import org.jspecify.annotations.Nullable;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Custom items of the server's item registry (second phase). For each one:
@@ -43,7 +44,8 @@ final class CustomItemConverter {
 
     private static void convert(ConversionContext context, ServerDefinitions.CustomItem item) {
         String identifier = item.identifier();
-        NbtMap components = item.components().containsKey("components") ? item.components().getCompound("components") : item.components();
+        NbtMap components = item.components().containsKey("components")
+                ? item.components().getCompound("components") : item.components();
         NbtMap properties = components.getCompound("item_properties");
         String itemModel = JavaAssetNames.itemModel(identifier);
         String path = JavaAssetNames.itemModelPath(identifier);
@@ -148,7 +150,8 @@ final class CustomItemConverter {
         String layer = slot.equals("slot.armor.legs") ? "humanoid_leggings" : "humanoid";
         String asset = JavaAssetNames.equipmentAsset(identifier);
         String assetPath = asset.substring(asset.indexOf(':') + 1);
-        context.writer().put("assets/" + JavaAssetNames.NAMESPACE + "/textures/entity/equipment/" + layer + "/" + assetPath + ".png", png);
+        context.writer().put("assets/" + JavaAssetNames.NAMESPACE + "/textures/entity/equipment/" + layer + "/" + assetPath
+                + ".png", png);
         JsonObject texture = new JsonObject();
         texture.addProperty("texture", asset);
         JsonArray layers = new JsonArray();
@@ -164,7 +167,8 @@ final class CustomItemConverter {
 
     private static @Nullable String heldModel(ConversionContext context, String path, JsonObject attachable) {
         Map<String, JsonElement> geometries = BedrockDefinitions.entries(attachable.get("geometry"));
-        JsonElement geometryId = geometries.getOrDefault("default", geometries.isEmpty() ? null : geometries.values().iterator().next());
+        JsonElement geometryId = geometries.getOrDefault("default",
+                geometries.isEmpty() ? null : geometries.values().iterator().next());
         String texturePath = defaultTexture(attachable);
         if (geometryId == null || !geometryId.isJsonPrimitive() || texturePath == null) {
             return null;
@@ -174,7 +178,7 @@ final class CustomItemConverter {
         if (geometry == null || texture == null) {
             return null;
         }
-        GeometryBaker.Result baked = GeometryBaker.bake(geometry, face -> "0", java.util.Set.of());
+        GeometryBaker.Result baked = GeometryBaker.bake(geometry, face -> "0", Set.of());
         if (baked == null) {
             return null;
         }
@@ -249,7 +253,8 @@ final class CustomItemConverter {
         JsonObject transform = new JsonObject();
         transform.add("rotation", array(rotation));
         transform.add("translation", array(translation));
-        double s = Math.round(scale * 10000) / 10000.0;
+        // Java clamps display scales to 4.
+        double s = Math.round(Math.min(4, scale) * 10000) / 10000.0;
         transform.add("scale", array(new double[]{s, s, s}));
         return transform;
     }

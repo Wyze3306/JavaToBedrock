@@ -66,7 +66,7 @@ public final class PackFiles {
     private final String name;
     private final PackManifest manifest;
     private final Map<String, byte[]> files;
-    private @Nullable List<String> sortedPaths;
+    private volatile @Nullable List<String> sortedPaths;
 
     private PackFiles(String name, PackManifest manifest, Map<String, byte[]> files) {
         this.name = name;
@@ -145,10 +145,12 @@ public final class PackFiles {
     }
 
     private List<String> sortedPaths() {
-        if (this.sortedPaths == null) {
-            this.sortedPaths = this.files.keySet().stream().sorted().toList();
+        List<String> paths = this.sortedPaths;
+        if (paths == null) {
+            paths = this.files.keySet().stream().sorted().toList();
+            this.sortedPaths = paths;
         }
-        return this.sortedPaths;
+        return paths;
     }
 
     /**
@@ -394,7 +396,8 @@ public final class PackFiles {
                 continue;
             }
             try {
-                files.put(prefix + lower, aesCfb8(fileKey.getAsString().getBytes(StandardCharsets.ISO_8859_1), data, 0, data.length));
+                byte[] key = fileKey.getAsString().getBytes(StandardCharsets.ISO_8859_1);
+                files.put(prefix + lower, aesCfb8(key, data, 0, data.length));
                 decrypted++;
             } catch (GeneralSecurityException e) {
                 LOGGER.debug("Pack {}: cannot decrypt {}: {}", pack, path, e.toString());

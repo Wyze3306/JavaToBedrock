@@ -46,7 +46,7 @@ public final class JavaAssetNames {
 
     /** {@link #soundEvent} without the namespace (the key in {@code assets/jtb/sounds.json}). */
     public static String soundEventPath(String bedrockName) {
-        return sanitize(bedrockName, false);
+        return sanitize(bedrockName, true);
     }
 
     /**

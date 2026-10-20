@@ -119,10 +119,11 @@ public final class ConversionContext {
             if (png != null && size != null) {
                 String relative = path.startsWith("textures/") ? path.substring("textures/".length()) : path;
                 String javaPath = kind.directory + "/" + JavaAssetNames.path(relative);
-                this.writer.put("assets/" + JavaAssetNames.NAMESPACE + "/textures/" + javaPath + ".png", png);
+                String file = "assets/" + JavaAssetNames.NAMESPACE + "/textures/" + javaPath + ".png";
+                this.writer.put(file, png);
                 JsonObject animation = animation(this.definitions.flipbook(path), size[0], size[1]);
                 if (animation != null) {
-                    this.writer.putJson("assets/" + JavaAssetNames.NAMESPACE + "/textures/" + javaPath + ".png.mcmeta", animation);
+                    this.writer.putJson(file + ".mcmeta", animation);
                 }
                 count("custom textures");
                 return JavaAssetNames.NAMESPACE + ":" + javaPath;
