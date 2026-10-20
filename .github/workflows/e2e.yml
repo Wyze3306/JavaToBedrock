@@ -1,7 +1,7 @@
 name: End-to-end
 
 # A real PowerNukkitX server (built from the fork with the JavaToBedrock companion features), the
-# proxy and the headless Java client. About 15 minutes: run on pull requests, on the default branch
+# proxy and the headless Java client. About 25 minutes: run on pull requests, on the default branch
 # and on demand.
 on:
   workflow_dispatch:
@@ -40,9 +40,11 @@ jobs:
       - name: Scenarios
         run: |
           status=0
-          for scenario in default world player entity chat sound world_travel; do
+          # scenario:seconds (each scenario documents how long it needs)
+          for run in default:40 world:40 player:40 entity:40 chat:40 sound:40 world_travel:40 inventory:160 inventory_menus:230; do
+            scenario=${run%%:*}
             echo "::group::$scenario"
-            tools/e2e/run.sh pnx-src/build/powernukkitx.jar "$scenario" 40 || { status=1; echo "::error::scenario $scenario failed"; }
+            tools/e2e/run.sh pnx-src/build/powernukkitx.jar "$scenario" "${run##*:}" || { status=1; echo "::error::scenario $scenario failed"; }
             mkdir -p build/e2e-logs/$scenario && cp build/e2e/*.log build/e2e-logs/$scenario/
             echo "::endgroup::"
           done

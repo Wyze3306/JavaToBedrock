@@ -156,7 +156,11 @@ Ce tableau est tenu à jour à chaque version (✅ fait · 🟡 partiel · ❌ p
 
 - Architecture : [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - Règles, contrats entre sous-systèmes et propriété des paquets : [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
-- Test de bout en bout avec un vrai serveur : `./gradlew runHeadlessClient -Phost=… -Pport=…`
+- Test de bout en bout contre un vrai PowerNukkitX, sans client Minecraft :
+  `tools/e2e/run.sh <powernukkitx.jar> [scénario] [secondes]` (serveur jetable, proxy et client Java
+  headless ; scénarios dans `src/test/java/…/e2e/scenario`). La CI (`.github/workflows/e2e.yml`) le lance
+  contre PowerNukkitX construit depuis le fork.
+- Client headless contre un serveur existant : `./gradlew runHeadlessClient -Phost=… -Pport=…`
 
 ## Licence et crédits
 
