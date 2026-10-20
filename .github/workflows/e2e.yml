@@ -11,7 +11,12 @@ on:
         default: ccr-80c30af5-ygsiz9
   pull_request:
   push:
-    branches: [main, master]
+    branches: [main, master, ccr-80c30af5-ygsiz9]
+
+# A newer push replaces a run still in progress.
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   e2e:
