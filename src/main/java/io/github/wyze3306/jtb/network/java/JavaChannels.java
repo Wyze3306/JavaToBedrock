@@ -26,6 +26,11 @@ public final class JavaChannels implements SessionState {
     public static final String VIABEDROCKUTILITY = "viabedrockutility:data";
     public static final String BEDROCKSKINUTILITY = "bedrockskin:data";
 
+    /** Only these are remembered: the client chooses what it announces, so nothing else is kept. */
+    private static final Set<String> TRACKED = Set.of(VIABEDROCKUTILITY_CONFIRM, VIABEDROCKUTILITY, BEDROCKSKINUTILITY);
+    /** Vanilla's limit for a serverbound custom payload. */
+    private static final int MAX_PAYLOAD = 32767;
+
     private static final Key REGISTER = Key.key("minecraft:register");
     private static final Key UNREGISTER = Key.key("minecraft:unregister");
 
@@ -47,8 +52,11 @@ public final class JavaChannels implements SessionState {
         if (!register && !channel.equals(UNREGISTER)) {
             return false;
         }
+        if (packet.getData().length > MAX_PAYLOAD) {
+            return true;
+        }
         for (String name : new String(packet.getData(), StandardCharsets.UTF_8).split("\0")) {
-            if (name.isEmpty()) {
+            if (!TRACKED.contains(name)) {
                 continue;
             }
             if (!register) {

@@ -39,6 +39,8 @@ public final class BedrockReconnect implements SessionState {
 
     private final ProxySession session;
     private @Nullable InetSocketAddress target;
+    /** Number of the current connection attempt: callbacks of older attempts are ignored. */
+    private int attempt;
     private boolean waiting;
     private long deadlineMillis;
     private int attempts;
@@ -49,9 +51,21 @@ public final class BedrockReconnect implements SessionState {
         this.session = session;
     }
 
-    /** Remembers the server the session is connecting to: the one to rejoin. */
-    void connecting(InetSocketAddress target) {
+    /**
+     * A new connection attempt to {@code target} starts (the server to rejoin from now on). It
+     * supersedes every earlier attempt, including a pending retry.
+     *
+     * @return the attempt number, to check with {@link #isCurrent}
+     */
+    int connecting(InetSocketAddress target) {
+        cancelRetry();
         this.target = target;
+        return ++this.attempt;
+    }
+
+    /** False once another connection attempt started: a late callback of this one must do nothing. */
+    boolean isCurrent(int attempt) {
+        return this.attempt == attempt;
     }
 
     /**
@@ -132,7 +146,8 @@ public final class BedrockReconnect implements SessionState {
         }
         this.attempts++;
         showDialog();
-        this.session.proxy().bedrockConnector().start(this.session, this.target);
+        // Resolved again: the server may come back on another address (container restart).
+        this.session.proxy().bedrockConnector().start(this.session, this.target.getHostString(), this.target.getPort());
     }
 
     private void showDialog() {
@@ -162,7 +177,8 @@ public final class BedrockReconnect implements SessionState {
                 .putString("title", "En attente du serveur Bedrock…")
                 .putList("body", NbtType.COMPOUND, new NbtList<>(NbtType.COMPOUND, body))
                 .putCompound("action", leave)
-                .putBoolean("can_close_with_escape", true)
+                // Escape would run the action, which is "leave": the button is the only way out.
+                .putBoolean("can_close_with_escape", false)
                 .build();
         this.session.sendJavaDirect(new ClientboundShowDialogConfigurationPacket(dialog));
     }

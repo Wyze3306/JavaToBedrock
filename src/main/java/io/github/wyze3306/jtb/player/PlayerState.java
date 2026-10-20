@@ -140,6 +140,7 @@ public final class PlayerState implements SessionState {
         this.runtimeId = packet.getRuntimeID();
         this.uniqueId = packet.getEntityID();
         this.javaEntityId = this.session.get(EntityTracker.KEY).bind(this.runtimeId);
+        this.session.get(WorldState.KEY).onDimensionChange(this::onDimensionChanged);
         Vector3f eye = packet.getPosition();
         this.input.teleported(eye.getX(), eye.getY() - EYE_HEIGHT, eye.getZ(), packet.getRotation().getY(), packet.getRotation().getX());
         updatePosition();
@@ -509,7 +510,7 @@ public final class PlayerState implements SessionState {
         if (first) {
             this.dead = true;
             this.respawnRequested = false;
-            this.deathPosition = new GlobalPos(JavaDimensions.key(this.session.get(WorldState.KEY).dimension()),
+            this.deathPosition = new GlobalPos(this.session.get(WorldState.KEY).worldKey(),
                     Vector3i.from(Math.floor(this.input.x()), Math.floor(this.input.y()), Math.floor(this.input.z())));
             this.session.get(BlockBreaking.KEY).reset();
             this.interactions.reset();
@@ -567,8 +568,10 @@ public final class PlayerState implements SessionState {
         this.session.sendBedrock(action);
 
         int dimension = this.session.get(WorldState.KEY).dimension();
+        // The world's current key (it alternates on same-dimension changes): another key would make
+        // the client start a new world and drop the chunks the proxy believes it has.
         this.session.sendJava(new ClientboundRespawnPacket(new PlayerSpawnInfo(JavaDimensions.typeId(dimension),
-                JavaDimensions.key(dimension), this.hashedSeed, javaGameMode(), null, false, false, this.deathPosition, 0, 63),
+                this.session.get(WorldState.KEY).worldKey(), this.hashedSeed, javaGameMode(), null, false, false, this.deathPosition, 0, 63),
                 false, false));
         this.input.reset();
         this.operatorLevel = -1;
@@ -577,6 +580,19 @@ public final class PlayerState implements SessionState {
         this.session.sendJava(new ClientboundSetHeldSlotPacket(this.session.get(InventoryState.KEY).selectedSlot()));
         teleport(eye.getX(), feetY, eye.getZ(), this.input.yaw(), this.input.pitch(), 0);
         this.session.sendJava(new ClientboundGameEventPacket(GameEvent.LEVEL_CHUNKS_LOAD_START, null));
+    }
+
+    /**
+     * The world subsystem moved the Java client to another world (Bedrock dimension change): its new
+     * player starts with default abilities and no effects, while nothing changed on Bedrock.
+     */
+    private void onDimensionChanged() {
+        sendAbilities();
+        this.stats.sendAttributes();
+        this.stats.sendHealth();
+        this.stats.sendExperience();
+        this.stats.resendEffects();
+        this.session.sendJava(new ClientboundSetHeldSlotPacket(this.session.get(InventoryState.KEY).selectedSlot()));
     }
 
     /** Bedrock {@code ShowCredits(START_CREDITS)}: the end poem; the Java client answers by respawning. */

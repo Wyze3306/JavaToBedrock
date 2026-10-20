@@ -90,7 +90,7 @@ final class ProxyCommands {
             Component list = Component.text("Serveurs : ", NamedTextColor.GOLD);
             boolean first = true;
             for (BedrockServers.Target target : servers.all()) {
-                boolean here = current != null && current.equals(target.address());
+                boolean here = current != null && current.equals(servers.address(target));
                 list = list.append(Component.text((first ? "" : ", ") + target.name() + (here ? " (ici)" : ""),
                         here ? NamedTextColor.GREEN : NamedTextColor.WHITE));
                 first = false;
@@ -103,7 +103,7 @@ final class ProxyCommands {
             send(session, Component.text("Serveur inconnu : " + name, NamedTextColor.RED));
             return;
         }
-        InetSocketAddress address = target.address();
+        InetSocketAddress address = servers.address(target);
         if (address.equals(current)) {
             send(session, Component.text("Vous êtes déjà sur " + target.name() + ".", NamedTextColor.GRAY));
             return;

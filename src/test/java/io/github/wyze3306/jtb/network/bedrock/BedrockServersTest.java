@@ -46,4 +46,24 @@ class BedrockServersTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new BedrockServers(config(Map.of(), Map.of("play.example.org", "missing"))));
     }
+
+    @Test
+    void defaultIsReservedAndNamesAreUnique() {
+        assertThrows(IllegalArgumentException.class, () -> new BedrockServers(config(Map.of("Default", "10.0.0.2"), Map.of())));
+        java.util.Map<String, String> duplicates = new java.util.LinkedHashMap<>();
+        duplicates.put("Lobby", "10.0.0.2");
+        duplicates.put("lobby", "10.0.0.3");
+        assertThrows(IllegalArgumentException.class, () -> new BedrockServers(config(duplicates, Map.of())));
+    }
+
+    @Test
+    void addressesAreCachedUntilRefreshed() {
+        BedrockServers servers = new BedrockServers(config(Map.of("lobby", "127.0.0.1:19133"), Map.of()));
+        BedrockServers.Target lobby = servers.byName("lobby");
+        java.net.InetSocketAddress first = servers.address(lobby);
+        assertEquals(19133, first.getPort());
+        assertEquals(first, servers.address(lobby));
+        servers.refresh();
+        assertEquals(first, servers.address(lobby));
+    }
 }

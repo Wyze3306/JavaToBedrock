@@ -16,7 +16,6 @@ import org.cloudburstmc.protocol.bedrock.packet.TransferPacket;
 import org.cloudburstmc.protocol.common.DefinitionRegistry;
 import org.cloudburstmc.protocol.common.PacketSignal;
 
-import java.net.InetSocketAddress;
 
 /**
  * Receives every packet of a Bedrock session on its Netty thread and hands it to the session event
@@ -91,8 +90,7 @@ final class BedrockPacketDispatcher implements BedrockPacketHandler {
                     + ":" + transfer.getServerPort() + " (transferts désactivés sur ce proxy)"));
             return;
         }
-        InetSocketAddress target = new InetSocketAddress(transfer.getServerAddress(), transfer.getServerPort());
-        this.session.switchServer(target);
+        this.session.switchServer(transfer.getServerAddress(), transfer.getServerPort());
     }
 
     @Override

@@ -71,8 +71,9 @@ final class ConsoleCommands {
     }
 
     private void servers() {
-        for (BedrockServers.Target target : this.proxy.bedrockConnector().servers().all()) {
-            BedrockPinger.Status status = this.proxy.pinger().status(target.address());
+        BedrockServers servers = this.proxy.bedrockConnector().servers();
+        for (BedrockServers.Target target : servers.all()) {
+            BedrockPinger.Status status = this.proxy.pinger().status(servers.address(target));
             LOGGER.info("  {} {}:{} {}", target.name(), target.host(), target.port(), status == null ? "offline"
                     : "online, \"" + BedrockText.stripFormatting(status.motd()) + "\" " + status.version()
                     + ", " + status.online() + "/" + status.max() + " players");
@@ -102,7 +103,7 @@ final class ConsoleCommands {
             players.add(session);
         }
         for (ProxySession session : players) {
-            session.execute(() -> session.switchServer(target.address()));
+            session.execute(() -> session.switchServer(target.host(), target.port()));
         }
         LOGGER.info("Sending {} player(s) to {}", players.size(), target.name());
     }

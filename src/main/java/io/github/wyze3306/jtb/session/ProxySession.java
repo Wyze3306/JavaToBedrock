@@ -283,6 +283,13 @@ public final class ProxySession {
         this.proxy.bedrockConnector().start(this, target);
     }
 
+    /** {@link #switchServer(InetSocketAddress)} for a host name, resolved off the event loop (Bedrock transfers). */
+    public void switchServer(String host, int port) {
+        LOGGER.info("[{}] Switching to Bedrock server {}:{}", getName(), host, port);
+        detachBedrock("Transferred");
+        this.proxy.bedrockConnector().start(this, host, port);
+    }
+
     /**
      * Leaves the current Bedrock server while keeping the Java player: closes the Bedrock connection
      * and every state describing its world, and sends the Java client back to the configuration

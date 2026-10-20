@@ -79,6 +79,10 @@ final class LocalStats {
 
     /** Remaining Java ticks of every active effect, by Java effect ordinal: 0 none, -1 infinite. */
     private final int[] effectTicks = new int[Effect.VALUES.length];
+    /** Amplifier and flags of every active effect, to give them back to a respawned Java player. */
+    private final int[] effectAmplifiers = new int[Effect.VALUES.length];
+    private final boolean[] effectAmbient = new boolean[Effect.VALUES.length];
+    private final boolean[] effectParticles = new boolean[Effect.VALUES.length];
 
     LocalStats(ProxySession session, PlayerState player) {
         this.session = session;
@@ -231,13 +235,35 @@ final class LocalStats {
         switch (packet.getEvent()) {
             case ADD, MODIFY -> {
                 int duration = packet.getEffectDurationTicks() < 0 ? -1 : packet.getEffectDurationTicks();
-                this.effectTicks[effect.ordinal()] = duration == 0 ? 1 : duration;
-                this.session.sendJava(new ClientboundUpdateMobEffectPacket(this.player.javaEntityId(), effect,
-                        packet.getEffectAmplifier(), duration, packet.isAmbient(), packet.isShowParticles(), true,
-                        effect == Effect.DARKNESS));
+                int index = effect.ordinal();
+                this.effectTicks[index] = duration == 0 ? 1 : duration;
+                this.effectAmplifiers[index] = packet.getEffectAmplifier();
+                this.effectAmbient[index] = packet.isAmbient();
+                this.effectParticles[index] = packet.isShowParticles();
+                sendEffect(effect, duration);
             }
             case REMOVE -> removeEffect(effect);
             default -> {
+            }
+        }
+    }
+
+    private void sendEffect(Effect effect, int duration) {
+        int index = effect.ordinal();
+        this.session.sendJava(new ClientboundUpdateMobEffectPacket(this.player.javaEntityId(), effect,
+                this.effectAmplifiers[index], duration, this.effectAmbient[index], this.effectParticles[index], true,
+                effect == Effect.DARKNESS));
+    }
+
+    /**
+     * The active effects again, with their remaining time: a Java respawn into another world (Bedrock
+     * dimension change) gives the client a fresh player, while the Bedrock player keeps its effects.
+     */
+    void resendEffects() {
+        for (Effect effect : Effect.VALUES) {
+            int ticks = this.effectTicks[effect.ordinal()];
+            if (ticks != 0) {
+                sendEffect(effect, ticks);
             }
         }
     }

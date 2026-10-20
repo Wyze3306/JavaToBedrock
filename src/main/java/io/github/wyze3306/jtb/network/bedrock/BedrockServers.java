@@ -8,6 +8,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The Bedrock servers behind the proxy: the default one ({@code bedrock.address} / {@code port}),
@@ -19,24 +20,30 @@ public final class BedrockServers {
     public static final int DEFAULT_PORT = 19132;
     public static final String DEFAULT_NAME = "default";
 
-    /**
-     * A Bedrock server. The address is resolved on each call, so a DNS change is picked up.
-     */
+    /** A Bedrock server; {@link #address(Target)} gives its resolved address. */
     public record Target(String name, String host, int port) {
-
-        public InetSocketAddress address() {
-            return new InetSocketAddress(this.host, this.port);
-        }
     }
 
     private final Target defaultTarget;
     private final Map<String, Target> byName = new LinkedHashMap<>();
     private final Map<String, Target> forcedHosts = new LinkedHashMap<>();
+    /** Resolved addresses by server name, refreshed off the event loops ({@link #refresh}). */
+    private final Map<String, InetSocketAddress> resolved = new ConcurrentHashMap<>();
 
     public BedrockServers(ProxyConfig.Bedrock config) {
         this.defaultTarget = new Target(DEFAULT_NAME, config.address(), config.port());
         this.byName.put(DEFAULT_NAME, this.defaultTarget);
-        config.servers().forEach((name, address) -> this.byName.put(name.toLowerCase(Locale.ROOT), parse(name, address)));
+        config.servers().forEach((name, address) -> {
+            String key = name.toLowerCase(Locale.ROOT);
+            if (key.equals(DEFAULT_NAME)) {
+                throw new IllegalArgumentException("bedrock.servers." + name + ": \"" + DEFAULT_NAME
+                        + "\" is the server of bedrock.address / bedrock.port");
+            }
+            if (this.byName.containsKey(key)) {
+                throw new IllegalArgumentException("bedrock.servers." + name + " is defined twice (names ignore case)");
+            }
+            this.byName.put(key, parse(name, address));
+        });
         config.forcedHosts().forEach((host, name) -> {
             Target target = this.byName.get(name.toLowerCase(Locale.ROOT));
             if (target == null) {
@@ -45,6 +52,32 @@ public final class BedrockServers {
             }
             this.forcedHosts.put(normalizeHost(host), target);
         });
+    }
+
+    /**
+     * The address of {@code target} as last resolved, without a DNS lookup once it has been resolved
+     * (the first call resolves it).
+     */
+    public InetSocketAddress address(Target target) {
+        InetSocketAddress address = this.resolved.get(target.name());
+        if (address == null) {
+            address = new InetSocketAddress(target.host(), target.port());
+            this.resolved.put(target.name(), address);
+        }
+        return address;
+    }
+
+    /**
+     * Resolves every server again (blocking: worker threads only). A failed lookup keeps the last
+     * resolved address.
+     */
+    public void refresh() {
+        for (Target target : this.byName.values()) {
+            InetSocketAddress fresh = new InetSocketAddress(target.host(), target.port());
+            if (!fresh.isUnresolved() || !this.resolved.containsKey(target.name())) {
+                this.resolved.put(target.name(), fresh);
+            }
+        }
     }
 
     public Target defaultTarget() {
