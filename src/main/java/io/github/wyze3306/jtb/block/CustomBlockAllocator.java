@@ -9,7 +9,7 @@ import org.cloudburstmc.nbt.NbtMap;
  * <p>
  * <b>Carriers.</b> Java has no custom blocks, so each custom state is given a vanilla Java state that
  * no vanilla Bedrock state uses (a <i>carrier</i>), which a converted resource pack can then retexture
- * through the carrier's blockstate file. Pools, in order: {@code note_block} (1150 states, vanilla
+ * through the carrier's blockstate file (1516 carriers in all). Pools, in order: {@code note_block} (1150 states, vanilla
  * Bedrock uses one: the pitch lives in the block entity), then {@code brown_mushroom_block},
  * {@code red_mushroom_block} and {@code mushroom_stem} (64 states each, Bedrock uses at most 16). All
  * are opaque full cubes, the right physics for most custom blocks. Allocation is deterministic: the

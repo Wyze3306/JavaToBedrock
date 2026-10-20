@@ -145,6 +145,11 @@ final class ChunkWorker implements Runnable {
         });
     }
 
+    /** The Java biome registry grew (custom biomes): later chunk packets use its global palette size. */
+    void setBiomeRegistrySize(int size) {
+        submit(() -> this.biomeRegistrySize = size);
+    }
+
     void load(int x, int z, @Nullable ChunkSection[] sections) {
         this.lightChanged = true;
         ChunkSection[] copy = sections.clone();

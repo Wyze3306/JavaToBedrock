@@ -122,10 +122,10 @@ final class ChunkManager implements ChunkWorker.Output {
         this.worker.reset(newLayout, newBiomes.registrySize());
     }
 
-    /** Custom biomes changed the table (before the first chunk normally). */
+    /** Custom biomes changed the table (normally before the first chunk; chunks already decoded keep theirs). */
     void setBiomes(BiomeTable newBiomes) {
         this.biomes = newBiomes;
-        this.worker.reset(this.layout, newBiomes.registrySize());
+        this.worker.setBiomeRegistrySize(newBiomes.registrySize());
     }
 
     ChunkLayout layout() {
