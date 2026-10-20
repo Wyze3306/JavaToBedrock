@@ -18,10 +18,7 @@ import org.geysermc.mcprotocollib.protocol.packet.configuration.serverbound.Serv
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.ClientboundLoginPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.ClientboundSystemChatPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.player.ClientboundPlayerPositionPacket;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.ServerboundChatCommandPacket;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.ServerboundChatPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.level.ServerboundAcceptTeleportationPacket;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.ServerboundMovePlayerPosRotPacket;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -30,13 +27,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.MessageDigest;
 import java.time.Duration;
-import java.time.Instant;
-import java.util.BitSet;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 import java.util.TreeMap;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -44,40 +38,58 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A scriptable, display-less Java 26.3 client used to test the proxy end to end against a real
- * Bedrock server: it logs in (offline), answers the configuration phase like a vanilla client
- * (known packs, downloads and verifies the resource pack), joins, accepts teleports, walks a bit,
- * chats and runs a command, then prints a report of everything it received.
+ * Bedrock server. It logs in (offline), answers the configuration phase like a vanilla client
+ * (known packs, downloads and verifies the resource pack), joins, accepts teleports and runs an
+ * {@link E2eScenario}, then prints a report of everything it received.
  * <p>
- * Usage: {@code gradle runHeadlessClient -Phost=127.0.0.1 -Pport=25565 -Pname=Tester -Pseconds=30}
+ * {@code -Dhost -Dport -Dname -Dseconds -Dscenario=default}
  */
 public final class HeadlessJavaClient {
 
-    private final Map<String, AtomicInteger> received = new ConcurrentHashMap<>();
     private final AtomicReference<String> disconnectReason = new AtomicReference<>();
     private final CountDownLatch joined = new CountDownLatch(1);
-    private final AtomicReference<double[]> position = new AtomicReference<>();
-    private final List<String> chat = new java.util.concurrent.CopyOnWriteArrayList<>();
     private volatile boolean packVerified;
+    private ClientContext context;
+    private E2eScenario scenario;
 
     public static void main(String[] args) throws Exception {
         String host = System.getProperty("host", "127.0.0.1");
         int port = Integer.getInteger("port", 25565);
         String name = System.getProperty("name", "JtbTester");
         int seconds = Integer.getInteger("seconds", 30);
-        int code = new HeadlessJavaClient().run(host, port, name, seconds);
-        System.exit(code);
+        String scenario = System.getProperty("scenario", "default");
+        System.exit(new HeadlessJavaClient().run(host, port, name, seconds, scenario));
     }
 
-    int run(String host, int port, String name, int seconds) throws Exception {
+    static E2eScenario loadScenario(String name) throws ReflectiveOperationException {
+        StringBuilder className = new StringBuilder(HeadlessJavaClient.class.getPackageName()).append(".scenario.");
+        for (String part : name.split("[_-]")) {
+            if (!part.isEmpty()) {
+                className.append(part.substring(0, 1).toUpperCase(Locale.ROOT)).append(part.substring(1));
+            }
+        }
+        className.append("Scenario");
+        return (E2eScenario) Class.forName(className.toString()).getDeclaredConstructor().newInstance();
+    }
+
+    int run(String host, int port, String name, int seconds, String scenarioName) throws Exception {
+        this.scenario = loadScenario(scenarioName);
         MinecraftProtocol protocol = new MinecraftProtocol(name);
         ClientSession session = ClientNetworkSessionFactory.factory()
                 .setRemoteSocketAddress(new InetSocketAddress(host, port))
                 .setProtocol(protocol)
                 .create();
+        this.context = new ClientContext(session);
         session.addListener(new SessionAdapter() {
             @Override
             public void packetReceived(Session s, Packet packet) {
-                onPacket(s, packet);
+                try {
+                    onPacket(s, packet);
+                    HeadlessJavaClient.this.scenario.onPacket(HeadlessJavaClient.this.context, packet);
+                } catch (Throwable t) {
+                    log("Error handling " + packet.getClass().getSimpleName() + ": " + t);
+                    t.printStackTrace(System.out);
+                }
             }
 
             @Override
@@ -87,44 +99,36 @@ public final class HeadlessJavaClient {
                 joined.countDown();
             }
         });
-        log("Connecting to " + host + ":" + port + " as " + name);
+        log("Connecting to " + host + ":" + port + " as " + name + ", scenario " + scenarioName);
         session.connect(true);
 
-        boolean ok = this.joined.await(90, TimeUnit.SECONDS);
+        boolean ok = this.joined.await(120, TimeUnit.SECONDS);
         if (!ok || this.disconnectReason.get() != null) {
             log("JOIN FAILED: " + (ok ? this.disconnectReason.get() : "timeout"));
             report();
             return 1;
         }
         log("Joined. Playing for " + seconds + "s");
+        this.scenario.onJoined(this.context);
         long end = System.currentTimeMillis() + seconds * 1000L;
-        int step = 0;
+        int tick = 0;
         while (System.currentTimeMillis() < end && session.isConnected()) {
-            double[] pos = this.position.get();
-            if (pos != null && step < 40) {
-                // Walk along +X a little, like a player holding W.
-                pos[0] += 0.2;
-                session.send(new ServerboundMovePlayerPosRotPacket(true, false, pos[0], pos[1], pos[2], (float) pos[3], (float) pos[4]));
-            }
-            if (step == 20) {
-                session.send(new ServerboundChatPacket("Bonjour depuis Java !", Instant.now().toEpochMilli(), 0L, null, 0, new BitSet(), 0));
-            }
-            if (step == 40) {
-                session.send(new ServerboundChatCommandPacket("list"));
-            }
-            step++;
+            this.scenario.tick(this.context, tick++);
             Thread.sleep(50);
         }
+        this.context.check("still connected at the end", session.isConnected());
+        this.scenario.finish(this.context);
         session.disconnect(Component.text("Test finished"));
         report();
-        return this.disconnectReason.get() == null || this.disconnectReason.get().startsWith("Test finished") ? 0 : 1;
+        return this.context.failures.isEmpty() ? 0 : 1;
     }
 
     private void onPacket(Session session, Packet packet) {
-        this.received.computeIfAbsent(packet.getClass().getSimpleName(), k -> new AtomicInteger()).incrementAndGet();
+        this.context.counts.computeIfAbsent(packet.getClass().getSimpleName(), k -> new AtomicInteger()).incrementAndGet();
+        this.context.last.put(packet.getClass(), packet);
         if (packet instanceof ClientboundSelectKnownPacks) {
-            session.send(new ServerboundSelectKnownPacks(List.of(new KnownPack("minecraft", "core",
-                    session.getPacketProtocol() instanceof MinecraftProtocol p ? p.getCodec().getMinecraftVersion() : "26.3"))));
+            String version = session.getPacketProtocol() instanceof MinecraftProtocol p ? p.getCodec().getMinecraftVersion() : "26.3";
+            session.send(new ServerboundSelectKnownPacks(List.of(new KnownPack("minecraft", "core", version))));
         } else if (packet instanceof ClientboundResourcePackPushPacket push) {
             session.send(new ServerboundResourcePackPacket(push.getId(), ResourcePackStatus.ACCEPTED));
             Thread.ofVirtual().start(() -> {
@@ -136,15 +140,19 @@ public final class HeadlessJavaClient {
             log("Login: entity " + login.getEntityId() + ", dimension " + login.getCommonPlayerSpawnInfo().getWorldName()
                     + ", gamemode " + login.getCommonPlayerSpawnInfo().getGameMode());
         } else if (packet instanceof ClientboundPlayerPositionPacket teleport) {
-            double[] pos = new double[]{teleport.getPosition().getX(), teleport.getPosition().getY(), teleport.getPosition().getZ(),
-                    teleport.getYRot(), teleport.getXRot()};
-            this.position.set(pos);
-            session.send(new ServerboundAcceptTeleportationPacket(teleport.getId(), pos[0], pos[1], pos[2], (float) pos[3], (float) pos[4]));
-            log("Teleport to " + teleport.getPosition());
+            double x = teleport.getPosition().getX();
+            double y = teleport.getPosition().getY();
+            double z = teleport.getPosition().getZ();
+            this.context.setPosition(x, y, z);
+            this.context.yaw = teleport.getYRot();
+            this.context.pitch = teleport.getXRot();
+            session.send(new ServerboundAcceptTeleportationPacket(teleport.getId(), x, y, z, teleport.getYRot(), teleport.getXRot()));
+            log("Teleport to " + teleport.getPosition() + " (id " + teleport.getId() + ")");
+            this.context.positioned = true;
             this.joined.countDown();
         } else if (packet instanceof ClientboundSystemChatPacket chatPacket) {
             String text = PlainTextComponentSerializer.plainText().serialize(chatPacket.getContent());
-            this.chat.add((chatPacket.isOverlay() ? "[actionbar] " : "") + text);
+            this.context.chat.add((chatPacket.isOverlay() ? "[actionbar] " : "") + text);
         }
     }
 
@@ -165,10 +173,11 @@ public final class HeadlessJavaClient {
 
     private void report() {
         log("==== Packets received ====");
-        new TreeMap<>(this.received).forEach((type, count) -> log(String.format("  %5d  %s", count.get(), type)));
+        new TreeMap<>(this.context.counts).forEach((type, count) -> log(String.format("  %5d  %s", count.get(), type)));
         log("==== Chat ====");
-        this.chat.forEach(line -> log("  " + line));
+        this.context.chat.forEach(line -> log("  " + line));
         log("Resource pack verified: " + this.packVerified);
+        log("Checks passed: " + this.context.checks.size() + ", failed: " + this.context.failures.size() + " " + this.context.failures);
         log("Disconnect: " + this.disconnectReason.get());
     }
 

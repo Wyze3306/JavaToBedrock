@@ -25,11 +25,12 @@ public class OfflineAuthProvider implements AuthProvider {
             KeyPair keyPair = BedrockCrypto.createKeyPair();
             String name = session.getBedrockName();
             UUID identity = session.getProfile().getId();
-            JsonObject payload = chainPayload(keyPair, name, identity);
+            String xuid = offlineXuid(identity);
+            JsonObject payload = chainPayload(keyPair, name, identity, xuid);
             decorate(session, keyPair, payload);
             String certificate = BedrockCrypto.sign(keyPair, payload.toString());
             return CompletableFuture.completedFuture(new LoginData(keyPair, PlayerAuthenticationType.SELF_SIGNED,
-                    List.of(certificate), null, name, identity, ""));
+                    List.of(certificate), null, name, identity, xuid));
         } catch (JoseException e) {
             return CompletableFuture.failedFuture(e);
         }
@@ -39,12 +40,22 @@ public class OfflineAuthProvider implements AuthProvider {
     protected void decorate(ProxySession session, KeyPair keyPair, JsonObject payload) throws JoseException {
     }
 
-    static JsonObject chainPayload(KeyPair keyPair, String name, UUID identity) {
+    /**
+     * A stable, unique, XUID-shaped id for a player that has no Xbox account. PowerNukkitX derives the
+     * player UUID from the XUID, so an empty XUID would give every offline player the same UUID (and
+     * each login would kick the previous player). Real XUIDs start with 2533/2535; these start with 1.
+     */
+    static String offlineXuid(UUID javaUuid) {
+        long bits = javaUuid.getMostSignificantBits() ^ Long.rotateLeft(javaUuid.getLeastSignificantBits(), 17);
+        return "1" + String.format("%015d", Long.remainderUnsigned(bits, 1_000_000_000_000_000L));
+    }
+
+    static JsonObject chainPayload(KeyPair keyPair, String name, UUID identity, String xuid) {
         long now = System.currentTimeMillis() / 1000;
         JsonObject extraData = new JsonObject();
         extraData.addProperty("displayName", name);
         extraData.addProperty("identity", identity.toString());
-        extraData.addProperty("XUID", "");
+        extraData.addProperty("XUID", xuid);
         extraData.addProperty("titleId", TITLE_ID);
         JsonObject payload = new JsonObject();
         payload.add("extraData", extraData);

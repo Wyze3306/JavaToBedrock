@@ -90,8 +90,9 @@ public final class BedrockConnector implements AutoCloseable {
                     @Override
                     protected void initSession(BedrockClientSession bedrock) {
                         bedrock.setCodec(codec);
+                        CodecRegistries.install(bedrock);
                         session.setBedrockSession(bedrock);
-                        bedrock.setPacketHandler(new BedrockPacketDispatcher(session, new BedrockLoginHandler(session, bedrock, codec)));
+                        bedrock.setPacketHandler(new BedrockPacketDispatcher(session, bedrock, new BedrockLoginHandler(session, bedrock, codec)));
                         RequestNetworkSettingsPacket request = new RequestNetworkSettingsPacket();
                         request.setClientNetworkVersion(codec.getProtocolVersion());
                         bedrock.sendPacketImmediately(request);

@@ -1,11 +1,16 @@
 package io.github.wyze3306.jtb.network.bedrock;
 
+import io.github.wyze3306.jtb.item.ItemRegistry;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.text.BedrockDisconnects;
 import io.netty.util.ReferenceCountUtil;
+import org.cloudburstmc.protocol.bedrock.BedrockSession;
+import org.cloudburstmc.protocol.bedrock.data.definitions.ItemDefinition;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler;
 import org.cloudburstmc.protocol.bedrock.packet.DisconnectPacket;
+import org.cloudburstmc.protocol.bedrock.packet.ItemRegistryPacket;
+import org.cloudburstmc.protocol.common.DefinitionRegistry;
 import org.cloudburstmc.protocol.common.PacketSignal;
 
 /**
@@ -18,15 +23,22 @@ import org.cloudburstmc.protocol.common.PacketSignal;
 final class BedrockPacketDispatcher implements BedrockPacketHandler {
 
     private final ProxySession session;
+    private final BedrockSession bedrock;
     private final BedrockLoginHandler login;
 
-    BedrockPacketDispatcher(ProxySession session, BedrockLoginHandler login) {
+    BedrockPacketDispatcher(ProxySession session, BedrockSession bedrock, BedrockLoginHandler login) {
         this.session = session;
+        this.bedrock = bedrock;
         this.login = login;
     }
 
     @Override
     public PacketSignal handlePacket(BedrockPacket packet) {
+        // Must happen before the next packet of the batch is decoded, so on this (Netty) thread.
+        DefinitionRegistry<ItemDefinition> items = CodecRegistries.onDecoded(this.bedrock, packet);
+        if (items != null && packet instanceof ItemRegistryPacket registry) {
+            this.session.execute(() -> this.session.get(ItemRegistry.KEY).load(registry.getItemData(), items));
+        }
         ReferenceCountUtil.retain(packet);
         this.session.execute(() -> {
             try {
