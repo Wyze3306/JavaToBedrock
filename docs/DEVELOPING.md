@@ -25,6 +25,19 @@ joins, acknowledges teleports and runs a scenario (`e2e/scenario/*Scenario`, cho
 ./gradlew runHeadlessClient -Phost=127.0.0.1 -Pport=25565 -Pname=Tester -Pseconds=30
 ```
 
+The whole chain in one command, against any PowerNukkitX jar (a throw-away server is prepared in
+`build/e2e/pnx` with xbox-auth off and the player op; exit code = the client's):
+
+```bash
+tools/e2e/run.sh path/to/powernukkitx.jar world 40
+```
+
+Scenarios (`foo_bar` = `FooBarScenario`): `default`, `world`, `world_travel`, `player`, `entity`,
+`chat`, `form`, `ui`, `sound`, `resource_pack`, `inventory`... Some need server-side helpers: `form`/`ui`
+use the test plugin in `src/test/pnx-plugin`, `resource_pack` packs in the server's `resource_packs/`,
+`reconnect` a server restart during the run, `server_switch` a second server
+(`JTB_BEDROCK_SERVERS=bis=host:port`), `peers` a second client named `Load1`.
+
 ## Rules
 
 1. **Threading.** Translators run on the session event loop. Never block it (no I/O, no sleeping,
