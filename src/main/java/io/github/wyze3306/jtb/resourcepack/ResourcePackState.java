@@ -142,10 +142,14 @@ public final class ResourcePackState implements SessionState {
         ServerDefinitions definitions = new ServerDefinitions(customItems(), this.carriers);
         this.session.proxy().service(JavaPackService.class).complete(stack, definitions)
                 .whenComplete((conversion, error) -> this.session.execute(() -> {
+                    if (stack != this.stack) {
+                        // A newer stack replaced this one: its own completion releases the hold.
+                        return;
+                    }
                     try {
                         if (error != null) {
                             this.session.logger().error("[{}] Resource pack conversion failed", this.session.getName(), error);
-                        } else if (stack == this.stack) {
+                        } else {
                             apply(conversion);
                         }
                     } finally {

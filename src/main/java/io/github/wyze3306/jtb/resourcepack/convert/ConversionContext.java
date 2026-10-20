@@ -9,7 +9,9 @@ import org.jspecify.annotations.Nullable;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -40,6 +42,8 @@ public final class ConversionContext {
     private final JavaPackWriter writer;
     private final ConversionArtifacts artifacts;
     private final Map<String, Optional<String>> textures = new ConcurrentHashMap<>();
+    /** Vanilla textures outside the block and item atlases that models reference (see {@link #writeAtlases()}). */
+    private final Set<String> extraSprites = ConcurrentHashMap.newKeySet();
     private final Map<String, AtomicInteger> counters = new ConcurrentHashMap<>();
 
     public ConversionContext(PackStack stack, BedrockDefinitions definitions, ResourceTables tables, JavaPackWriter writer,
@@ -59,6 +63,7 @@ public final class ConversionContext {
         ConversionContext derived = new ConversionContext(this.stack, this.definitions, this.tables,
                 new JavaPackWriter(this.writer), this.artifacts.copy());
         derived.textures.putAll(this.textures);
+        derived.extraSprites.addAll(this.extraSprites);
         return derived;
     }
 
@@ -132,7 +137,36 @@ public final class ConversionContext {
         }
         String relative = path.startsWith("textures/") ? path.substring("textures/".length()) : path;
         var vanilla = this.tables.textures().get(relative);
-        return vanilla == null || vanilla.isEmpty() ? null : "minecraft:" + vanilla.getFirst().path();
+        if (vanilla == null || vanilla.isEmpty()) {
+            return null;
+        }
+        String texture = "minecraft:" + vanilla.getFirst().path();
+        if (!vanilla.getFirst().path().startsWith("block/") && !vanilla.getFirst().path().startsWith("item/")) {
+            this.extraSprites.add(texture);
+        }
+        return texture;
+    }
+
+    /**
+     * Adds the vanilla textures models use from outside the block and item atlases (an entity
+     * texture reused by a custom entity, for instance) to both atlases: the client merges these
+     * atlas files with the vanilla ones, so the sprites exist when the models are baked.
+     */
+    void writeAtlases() {
+        if (this.extraSprites.isEmpty()) {
+            return;
+        }
+        JsonArray sources = new JsonArray();
+        for (String sprite : new TreeSet<>(this.extraSprites)) {
+            JsonObject source = new JsonObject();
+            source.addProperty("type", "minecraft:single");
+            source.addProperty("resource", sprite);
+            sources.add(source);
+        }
+        JsonObject atlas = new JsonObject();
+        atlas.add("sources", sources);
+        this.writer.putJson("assets/minecraft/atlases/blocks.json", atlas);
+        this.writer.putJson("assets/minecraft/atlases/items.json", atlas);
     }
 
     /**

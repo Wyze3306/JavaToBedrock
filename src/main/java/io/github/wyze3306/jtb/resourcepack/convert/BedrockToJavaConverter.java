@@ -123,6 +123,7 @@ public final class BedrockToJavaConverter {
             CustomBlockConverter.convert(context, definitions.blocks());
             CustomItemConverter.convert(context, definitions.items());
         }
+        context.writeAtlases();
         context.writer().putJson(ARTIFACTS_PATH, context.artifacts().toJson());
         Map<String, Integer> counters = new TreeMap<>(stack.context.counters());
         context.counters().forEach((k, v) -> counters.merge(k, v, Integer::sum));

@@ -7,6 +7,8 @@ import io.github.wyze3306.jtb.resourcepack.JavaAssetNames;
 import io.github.wyze3306.jtb.resourcepack.ServerDefinitions;
 import org.cloudburstmc.nbt.NbtMap;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Locale;
@@ -29,6 +31,8 @@ import java.util.Set;
  */
 final class CustomItemConverter {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(CustomItemConverter.class);
+
     private CustomItemConverter() {
     }
 
@@ -37,6 +41,7 @@ final class CustomItemConverter {
             try {
                 convert(context, item);
             } catch (RuntimeException e) {
+                LOGGER.debug("Custom item {} not converted", item.identifier(), e);
                 context.count("custom items failed");
             }
         }

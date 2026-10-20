@@ -167,6 +167,22 @@ class ConverterTest {
         assertTrue(files.containsKey("assets/minecraft/textures/block/stone.png"));
     }
 
+    @Test
+    void vanillaEntityTexturesAreAddedToTheAtlases() throws IOException {
+        Map<String, byte[]> files = new LinkedHashMap<>(TestPacks.e2ePack(TestPacks.fakeVorbis()));
+        files.put("entity/jtb_cube.entity.json", new String(files.get("entity/jtb_cube.entity.json"), StandardCharsets.UTF_8)
+                .replace("textures/entity/jtb_cube", "textures/entity/cow/cow_v2").getBytes(StandardCharsets.UTF_8));
+        Map<String, byte[]> out = unzip(BedrockToJavaConverter.convert(List.of(TestPacks.pack(TestPacks.E2E_PACK,
+                TestPacks.zip(files))), ServerDefinitions.EMPTY).zip());
+        assertEquals("minecraft:entity/cow/cow_temperate", json(out, "assets/jtb/models/entity/jtb/cube/default_default.json")
+                .getAsJsonObject("textures").get("0").getAsString());
+        for (String atlas : List.of("blocks", "items")) {
+            JsonObject source = json(out, "assets/minecraft/atlases/" + atlas + ".json").getAsJsonArray("sources").get(0).getAsJsonObject();
+            assertEquals("minecraft:single", source.get("type").getAsString());
+            assertEquals("minecraft:entity/cow/cow_temperate", source.get("resource").getAsString());
+        }
+    }
+
     // ------------------------------------------------------------------ vanilla textures
 
     @Test
