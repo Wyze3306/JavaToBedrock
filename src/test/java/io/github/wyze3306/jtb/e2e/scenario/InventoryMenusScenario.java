@@ -4,22 +4,30 @@ import org.cloudburstmc.math.vector.Vector3i;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ClickItemAction;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerActionType;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerType;
+import org.geysermc.mcprotocollib.protocol.data.game.inventory.MoveToHotbarAction;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ShiftClickItemAction;
 import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentTypes;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.WrittenBookContent;
 import org.geysermc.mcprotocollib.protocol.data.game.recipe.display.slot.ItemStackSlotDisplay;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.ClientboundUpdateRecipesPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.inventory.ServerboundContainerButtonClickPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.inventory.ServerboundEditBookPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.inventory.ServerboundRenameItemPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.inventory.ServerboundSetBeaconPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.ServerboundSetCarriedItemPacket;
 
 import java.util.List;
+import java.util.OptionalInt;
 
 /**
  * The special screens against PowerNukkitX, each block placed with {@code /setblock}: blast furnace
  * (smelting, progress properties), stonecutter (recipe button, craft all), enchanting table (options,
  * button), anvil (rename), grindstone (disenchant), smithing table (netherite upgrade), brewing stand,
- * hopper, barrel, ender chest, and a chest to check on the server what the anvil and the
- * grindstone produced. Items go in with shift-clicks, which follow each menu's own rules. The tester
- * must be an operator. Run it for 150 s.
+ * hopper, barrel, ender chest, loom (pattern button), beacon (payment), book and quill (writing,
+ * signing), hotbar selection, and a chest to check on the server what the anvil, the grindstone, the
+ * loom and the book editing produced. Items go in with shift-clicks, which follow each menu's own
+ * rules. The tester must be an operator. Run it for 220 s.
  */
 public final class InventoryMenusScenario extends InventoryScript {
 
@@ -36,6 +44,14 @@ public final class InventoryMenusScenario extends InventoryScript {
     private final int netheritePickaxe = id("netherite_pickaxe");
     private final int blazePowder = id("blaze_powder");
     private final int cobblestone = id("cobblestone");
+    private final int whiteBanner = id("white_banner");
+    private final int redDye = id("red_dye");
+    private final int writableBook = id("writable_book");
+    private final int writtenBook = id("written_book");
+    private final int dirt = id("dirt");
+
+    private int bookSlot;
+    private int chatMark;
 
     @Override
     protected void script() {
@@ -50,6 +66,9 @@ public final class InventoryMenusScenario extends InventoryScript {
         Vector3i hopper = this.feet.add(3, 0, 0);
         Vector3i barrel = this.feet.add(0, 0, 3);
         Vector3i enderChest = this.feet.add(0, 0, -3);
+        Vector3i loom = this.feet.add(-3, 0, 0);
+        Vector3i beacon = this.feet.add(-3, 0, 3);
+        Vector3i placed = this.feet.add(1, 0, -1);
 
         step("blocks 1", 20, () -> {
             setblock(blastFurnace, "blast_furnace");
@@ -66,6 +85,15 @@ public final class InventoryMenusScenario extends InventoryScript {
             setblock(barrel, "barrel");
             setblock(enderChest, "ender_chest");
         });
+        step("blocks 3", 20, () -> {
+            setblock(loom, "loom");
+            // An active beacon: a 3x3 iron pyramid under it and the sky above.
+            command("fill " + (beacon.getX() - 1) + " " + (beacon.getY() - 1) + " " + (beacon.getZ() - 1) + " "
+                    + (beacon.getX() + 1) + " " + (beacon.getY() - 1) + " " + (beacon.getZ() + 1) + " iron_block");
+            command("fill " + beacon.getX() + " " + (beacon.getY() + 1) + " " + beacon.getZ() + " "
+                    + beacon.getX() + " " + (beacon.getY() + 60) + " " + beacon.getZ() + " air");
+            setblock(beacon, "beacon");
+        });
         step("give 1", 20, () -> {
             command("xp 30L " + this.name);
             command("give " + this.name + " raw_iron 1");
@@ -80,6 +108,12 @@ public final class InventoryMenusScenario extends InventoryScript {
             command("give " + this.name + " netherite_ingot 1");
             command("give " + this.name + " blaze_powder 1");
             command("give " + this.name + " cobblestone 16");
+        });
+        step("give 3", 30, () -> {
+            command("give " + this.name + " banner 1 15");
+            command("give " + this.name + " red_dye 1");
+            command("give " + this.name + " writable_book 1");
+            command("give " + this.name + " dirt 1");
         });
         step("check given", 1, () -> check("given items arrived", total(0, 9, 45, this.sword) == 2
                 && total(0, 9, 45, this.cobblestone) == 16));
@@ -230,7 +264,94 @@ public final class InventoryMenusScenario extends InventoryScript {
         step("check barrel", 1, () -> check("barrel opens a Java 9x3 screen", this.openType == ContainerType.GENERIC_9X3
                 && size(this.openId) == 63));
         step("close barrel", 15, this::close);
+
+        // -------------------------------------------------------------- loom
+        step("open loom", 30, () -> use(loom));
+        step("check loom", 1, () -> check("loom opens a Java loom screen", this.openType == ContainerType.LOOM && size(this.openId) == 40));
+        step("banner in", 15, () -> shiftClick(4, 40, this.whiteBanner));
+        step("dye in", 15, () -> shiftClick(4, 40, this.redDye));
+        step("pattern", 20, () -> this.context.send(new ServerboundContainerButtonClickPacket(this.openId, 0)));
+        step("check pattern", 1, () -> check("loom result: the banner with one red layer",
+                is(this.openId, 0, this.whiteBanner, 1) && is(this.openId, 1, this.redDye, 1)
+                        && count(item(this.openId, 3), this.whiteBanner) == 1 && layers(item(this.openId, 3)) == 1));
+        step("take banner", 20, () -> click(this.openId, 3, ContainerActionType.SHIFT_CLICK_ITEM, ShiftClickItemAction.LEFT_CLICK));
+        step("check banner", 1, () -> check("patterned banner taken, banner and dye consumed", empty(this.openId, 0)
+                && empty(this.openId, 1) && total(this.openId, 4, 40, this.whiteBanner) == 1));
+        step("close loom", 15, this::close);
+
+        // -------------------------------------------------------------- beacon
+        step("open beacon", 30, () -> use(beacon));
+        step("check beacon", 1, () -> check("beacon opens a Java beacon screen", this.openType == ContainerType.BEACON
+                && size(this.openId) == 37));
+        step("payment in", 15, () -> shiftClick(1, 37, this.ironIngot));
+        step("check payment", 1, () -> check("shift click: the ingot goes to the payment slot", is(this.openId, 0, this.ironIngot, 1)));
+        step("set beacon", 20, () -> this.context.send(new ServerboundSetBeaconPacket(OptionalInt.of(0), OptionalInt.empty())));
+        step("check beacon paid", 1, () -> check("beacon power chosen: the payment is consumed", empty(this.openId, 0)));
+        step("close beacon", 15, this::close);
+        serverCount("iron_ingot", 0);
+        step("close inventory", 10, this::close);
+
+        // -------------------------------------------------------------- book and quill
+        step("book to hotbar", 15, () -> click(0, find(0, 9, 45, this.writableBook), ContainerActionType.MOVE_TO_HOTBAR_SLOT,
+                MoveToHotbarAction.SLOT_5));
+        step("dirt to hotbar", 15, () -> click(0, find(0, 9, 45, this.dirt), ContainerActionType.MOVE_TO_HOTBAR_SLOT,
+                MoveToHotbarAction.SLOT_6));
+        step("close inventory 2", 10, this::close);
+        step("select book", 10, () -> {
+            this.bookSlot = 4;
+            check("book and dirt moved to the hotbar", is(0, 40, this.writableBook, 1) && is(0, 41, this.dirt, 1));
+            this.context.send(new ServerboundSetCarriedItemPacket(this.bookSlot));
+        });
+        step("write", 20, () -> this.context.send(new ServerboundEditBookPacket(this.bookSlot, List.of("Hello", "World"), null)));
+        step("sign", 30, () -> this.context.send(new ServerboundEditBookPacket(this.bookSlot, List.of("Hello", "World"), "Notes")));
+        step("check signed", 1, () -> check("signing turns the book into a written book (server update)",
+                count(item(0, 36 + this.bookSlot), this.writtenBook) == 1));
+
+        // -------------------------------------------------------------- hotbar selection on the server
+        step("select dirt", 10, () -> this.context.send(new ServerboundSetCarriedItemPacket(5)));
+        step("place dirt", 20, () -> use(placed.add(0, -1, 0)));
+        step("test dirt", 20, () -> {
+            this.chatMark = this.context.chat().size();
+            command("testforblock " + placed.getX() + " " + placed.getY() + " " + placed.getZ() + " dirt");
+        });
+        step("check dirt", 1, () -> check("the server places the newly selected hotbar item",
+                this.context.chat().subList(this.chatMark, this.context.chat().size()).stream().anyMatch(l -> l.contains("Successfully"))));
+
+        // -------------------------------------------------------------- what the server has
+        step("open chest 3", 30, () -> use(chest));
+        step("store banner", 15, () -> shiftClick(27, 63, this.whiteBanner));
+        step("store book", 15, () -> shiftClick(27, 63, this.writtenBook));
+        step("close chest 3", 20, this::close);
+        step("reopen chest 3", 30, () -> use(chest));
+        step("check chest 3", 1, () -> {
+            int banner = find(this.openId, 0, 27, this.whiteBanner);
+            int book = find(this.openId, 0, 27, this.writtenBook);
+            check("server kept the banner pattern", banner >= 0 && layers(item(this.openId, banner)) == 1);
+            check("server kept the signed book", book >= 0 && bookTitle(item(this.openId, book)).equals("Notes")
+                    && bookPages(item(this.openId, book)) == 2);
+        });
+        step("close chest 4", 15, this::close);
         step("done", 1, () -> this.context.log("Inventory menus scenario finished"));
+    }
+
+    private static int layers(ItemStack item) {
+        if (item == null || item.getDataComponentsPatch() == null) {
+            return 0;
+        }
+        List<?> patterns = item.getDataComponentsPatch().get(DataComponentTypes.BANNER_PATTERNS);
+        return patterns == null ? 0 : patterns.size();
+    }
+
+    private static String bookTitle(ItemStack item) {
+        WrittenBookContent content = item == null || item.getDataComponentsPatch() == null ? null
+                : item.getDataComponentsPatch().get(DataComponentTypes.WRITTEN_BOOK_CONTENT);
+        return content == null ? "" : content.getTitle().getRaw();
+    }
+
+    private static int bookPages(ItemStack item) {
+        WrittenBookContent content = item == null || item.getDataComponentsPatch() == null ? null
+                : item.getDataComponentsPatch().get(DataComponentTypes.WRITTEN_BOOK_CONTENT);
+        return content == null ? 0 : content.getPages().size();
     }
 
     private void shiftClick(int from, int to, int id) {

@@ -202,6 +202,7 @@ abstract class InventoryScript implements E2eScenario {
         command("setblock " + block.getX() + " " + block.getY() + " " + block.getZ() + " " + type);
     }
 
+    /** Uses the top face of a block: opens it, or places the held block item above it. */
     protected void use(Vector3i block) {
         this.context.send(new ServerboundUseItemOnPacket(block, Direction.UP, Hand.MAIN_HAND, 0.5f, 1f, 0.5f, false, false,
                 ++this.sequence));
