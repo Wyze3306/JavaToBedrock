@@ -1,6 +1,7 @@
 package io.github.wyze3306.jtb.world;
 
 import io.github.wyze3306.jtb.world.chunk.ChunkSection;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import org.cloudburstmc.nbt.NbtMap;
@@ -45,6 +46,8 @@ final class ChunkColumn {
     final Int2ObjectOpenHashMap<NbtMap> bedrockBlockEntities = new Int2ObjectOpenHashMap<>();
     /** Positions holding a Java state with a block entity type. */
     final IntOpenHashSet javaBlockEntities = new IntOpenHashSet();
+    /** Item frame blocks: position -> {@code BlockMapper#itemFrame} value (shown as entities once the column is sent). */
+    final Int2IntOpenHashMap frames = new Int2IntOpenHashMap(0);
     /** Block changes received while decoding: x, y, z, layer, runtime id. */
     final List<int[]> pendingBlocks = new ArrayList<>(0);
     /** Block entities received while decoding. */

@@ -209,10 +209,12 @@ final class Interactions {
     }
 
     /**
-     * Java {@code UseItemOn}: click on a block with the main hand. PowerNukkitX only places a block when
-     * the client predicted success, so the prediction is always {@code SUCCESS} (the server checks).
+     * Click on a block with the main hand (Java {@code UseItemOn}, or the use of an item frame entity).
+     * PowerNukkitX only places a block when the client predicted success, so a click that may place
+     * predicts {@code SUCCESS} (the server checks); one that must not (an item frame) predicts
+     * {@code FAILURE}, which still lets the block react.
      */
-    void useItemOn(Vector3i position, int face, float cursorX, float cursorY, float cursorZ, int targetRuntimeId) {
+    void useItemOn(Vector3i position, int face, float cursorX, float cursorY, float cursorZ, int targetRuntimeId, boolean place) {
         InventoryState inventory = this.session.get(InventoryState.KEY);
         ItemUseInventoryTransaction transaction = itemUse(ItemUseActionType.PLACE, inventory);
         transaction.setTriggerType(ItemUseTriggerType.PLAYER_INPUT);
@@ -220,7 +222,7 @@ final class Interactions {
         transaction.setFace(face);
         transaction.setClickPosition(Vector3f.from(cursorX, cursorY, cursorZ));
         transaction.setTargetBlockId(new BlockIds(targetRuntimeId));
-        transaction.setClientInteractPrediction(ItemUsePredictedResult.SUCCESS);
+        transaction.setClientInteractPrediction(place ? ItemUsePredictedResult.SUCCESS : ItemUsePredictedResult.FAILURE);
         send(transaction);
         acted(ActorSwingSource.BUILD);
     }

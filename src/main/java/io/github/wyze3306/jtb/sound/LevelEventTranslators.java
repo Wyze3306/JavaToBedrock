@@ -101,8 +101,14 @@ public final class LevelEventTranslators {
             case STOP_THUNDERSTORM -> state.stopThunder();
             case BLOCK_START_BREAK, BLOCK_UPDATE_BREAK, BLOCK_STOP_BREAK -> {
                 Vector3i block = blockPosition(position);
-                // The Java client draws the cracks of the block its player digs.
-                if (!session.get(BlockBreaking.KEY).isDigging(block.getX(), block.getY(), block.getZ())) {
+                BlockBreaking breaking = session.get(BlockBreaking.KEY);
+                // The Java client draws the cracks of the block its player digs; the player module times
+                // the digs the Java client does not know about (item frames) with the server's speed.
+                if (breaking.isDigging(block.getX(), block.getY(), block.getZ())) {
+                    if (event != LevelEvent.BLOCK_STOP_BREAK) {
+                        breaking.onServerCrack(block.getX(), block.getY(), block.getZ(), data);
+                    }
+                } else {
                     BlockCracking cracking = session.get(BlockCracking.KEY);
                     switch (event) {
                         case BLOCK_START_BREAK -> cracking.start(block, data);

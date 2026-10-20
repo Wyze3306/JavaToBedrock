@@ -170,6 +170,15 @@ public final class WorldState implements SessionState {
         return this.chunks == null ? null : this.chunks.bedrockBlockEntityAt(x, y, z);
     }
 
+    /**
+     * The item frame a Java entity id stands for, or null when the id is not a frame. Bedrock frames
+     * are blocks the Java client sees as {@code item_frame} / {@code glow_item_frame} entities; the
+     * player module turns Java attacks and uses of those entities into clicks on the block.
+     */
+    public @Nullable ItemFrame itemFrame(int javaEntityId) {
+        return this.chunks == null ? null : this.chunks.itemFrame(javaEntityId);
+    }
+
     /** A boolean Bedrock game rule (name in any case), or {@code fallback} when the server did not send it. */
     public boolean gameRule(String name, boolean fallback) {
         return this.gameRules.get(name.toLowerCase(Locale.ROOT)) instanceof Boolean value ? value : fallback;

@@ -391,6 +391,17 @@ public final class BlockMapper implements SessionState {
         return entry == -1 ? null : this.customNames[-2 - entry];
     }
 
+    /**
+     * Whether a runtime id is an item frame block, and which: -1 when it is not, else its facing
+     * direction (0 down, 1 up, 2 north, 3 south, 4 west, 5 east, Java's {@code Direction} order) plus
+     * {@link BedrockBlockPalette#GLOW_FRAME} for {@code minecraft:glow_frame}. Bedrock frames are blocks
+     * that Java shows as entities; the block itself maps to air.
+     */
+    public int itemFrame(int bedrockRuntimeId) {
+        int entry = entry(bedrockRuntimeId);
+        return entry >= 0 ? BedrockBlockPalette.itemFrame(entry) : -1;
+    }
+
     /** Runtime id of {@code minecraft:air} on this server. */
     public int bedrockAir() {
         return this.airRuntimeId;
