@@ -2,6 +2,10 @@
 mcprotocollib = "26.3"
 # Same version as the one MCProtocolLib depends on
 minecraftauth = "5.0.0"
+# Moving snapshot, the one PowerNukkitX itself builds against (published from PowerNukkitX/Protocol,
+# lately its r/26_u6 branch, which already carries the next version's codec): the proxy uses the
+# v2192 codec (Bedrock 1.26.50) and tolerates what newer snapshots add (SoundMappingsTest flags new
+# sound events).
 bedrock-protocol = "3.0.0.Beta7-Debug-SNAPSHOT"
 netty = "4.2.17.Final"
 # Same RakNet transport as the PowerNukkitX server
