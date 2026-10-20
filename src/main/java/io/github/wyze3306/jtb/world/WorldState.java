@@ -3,7 +3,9 @@ package io.github.wyze3306.jtb.world;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
 import io.github.wyze3306.jtb.session.StateKey;
+import org.cloudburstmc.nbt.NbtMap;
 import org.cloudburstmc.protocol.bedrock.packet.StartGamePacket;
+import org.jspecify.annotations.Nullable;
 
 /**
  * CONTRACT (owner: world subsystem). The world as the Java client sees it: current dimension and
@@ -53,5 +55,14 @@ public final class WorldState implements SessionState {
     /** Bedrock runtime id at a position in layer 0 (block) or 1 (liquid); air when not loaded. */
     public int bedrockBlockAt(int x, int y, int z, int layer) {
         return 0;
+    }
+
+    /**
+     * The Bedrock block entity data at a position (from chunks and {@code BlockActorData}), or null when
+     * none is known. Used by the inventory subsystem for container titles ({@code CustomName}), double
+     * chests ({@code pairx}/{@code pairz}) and lectern books.
+     */
+    public @Nullable NbtMap blockEntityAt(int x, int y, int z) {
+        return null;
     }
 }
