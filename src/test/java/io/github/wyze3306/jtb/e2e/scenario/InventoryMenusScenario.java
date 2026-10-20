@@ -124,6 +124,7 @@ public final class InventoryMenusScenario extends InventoryScript {
         // -------------------------------------------------------------- blast furnace
         step("open blast furnace", 30, () -> use(blastFurnace));
         expect("blast furnace opens a Java blast furnace screen", () -> this.openType == ContainerType.BLAST_FURNACE && size(this.openId) == 39);
+        emptyContainer("blast furnace", 3);
         step("ore in", 15, () -> shiftClick(3, 39, this.rawIron));
         step("fuel in", 15, () -> shiftClick(3, 39, this.coal));
         expect("shift click: ore to the input, coal to the fuel slot (burning at once)", () -> is(this.openId, 0, this.rawIron, 1) && total(this.openId, 3, 39, this.coal) == 0
@@ -204,6 +205,7 @@ public final class InventoryMenusScenario extends InventoryScript {
         // -------------------------------------------------------------- chest: what the server really has
         step("open chest", 2, () -> use(chest));
         expect("chest open", () -> this.openId > 0 && this.openType == ContainerType.GENERIC_9X3);
+        emptyContainer("chest", 27);
         step("store named", 2, () -> click(this.openId, findNamed(27, 63), ContainerActionType.SHIFT_CLICK_ITEM,
                 ShiftClickItemAction.LEFT_CLICK));
         expect("named sword stored", () -> "Excalibur".equals(customName(item(this.openId, 0))));
@@ -234,6 +236,7 @@ public final class InventoryMenusScenario extends InventoryScript {
         // -------------------------------------------------------------- brewing stand
         step("open brewing stand", 30, () -> use(brewing));
         expect("brewing stand opens a Java brewing screen", () -> this.openType == ContainerType.BREWING_STAND && size(this.openId) == 41);
+        emptyContainer("brewing stand", 5);
         step("fuel in", 20, () -> shiftClick(5, 41, this.blazePowder));
         expect("shift click: blaze powder to the fuel slot", () -> count(item(this.openId, 4), this.blazePowder) >= 1 || property(this.openId, 1) > 0);
         step("close brewing stand", 15, this::close);
@@ -241,6 +244,7 @@ public final class InventoryMenusScenario extends InventoryScript {
         // -------------------------------------------------------------- storage blocks
         step("open hopper", 30, () -> use(hopper));
         expect("hopper opens a Java hopper screen", () -> this.openType == ContainerType.HOPPER && size(this.openId) == 41);
+        emptyContainer("hopper", 5);
         step("store in hopper", 15, () -> shiftClick(5, 41, this.cobblestone));
         expect("shift click stores in the hopper", () -> is(this.openId, 0, this.cobblestone, 16));
         step("close hopper", 15, this::close);
@@ -293,8 +297,10 @@ public final class InventoryMenusScenario extends InventoryScript {
         expect("signing turns the book into a written book (server update)", () -> count(item(0, 36 + this.bookSlot), this.writtenBook) == 1);
 
         // -------------------------------------------------------------- hotbar selection on the server
-        step("select dirt", 10, () -> this.context.send(new ServerboundSetCarriedItemPacket(5)));
-        step("place dirt", 20, () -> use(placed.add(0, -1, 0)));
+        // PowerNukkitX checks the use against the held item: let the selection reach it first (a busy world
+        // may handle the player's packets only once a second).
+        step("select dirt", 40, () -> this.context.send(new ServerboundSetCarriedItemPacket(5)));
+        step("place dirt", 40, () -> use(placed.add(0, -1, 0)));
         step("test dirt", 20, () -> {
             this.chatMark = this.context.chat().size();
             command("testforblock " + placed.getX() + " " + placed.getY() + " " + placed.getZ() + " dirt");
@@ -332,6 +338,7 @@ public final class InventoryMenusScenario extends InventoryScript {
         step("place chest 3", 15, () -> use(this.feet.add(2, -1, 4)));
         step("open double chest", 30, () -> use(this.feet.add(2, 0, 3)));
         expect("a double chest opens a Java 9x6 screen", () -> this.openType == ContainerType.GENERIC_9X6 && size(this.openId) == 90);
+        emptyContainer("double chest", 54);
         step("store in double chest", 15, () -> shiftClick(54, 90, this.netheritePickaxe));
         expect("shift click stores in the double chest", () -> is(this.openId, 0, this.netheritePickaxe, 1));
         step("close double chest", 15, this::close);

@@ -175,6 +175,7 @@ public final class InventoryScenario extends InventoryScript {
         step("open chest", 30, () -> use(this.chest));
         expect("chest opens a 9x3 screen with the player inventory", () -> this.openId > 0 && this.openType == ContainerType.GENERIC_9X3 && size(this.openId) == 63);
         // Generic 9x3: 0-26 chest, 27-53 main inventory (Java inventory slot + 18), 54-62 hotbar.
+        emptyContainer("chest", 27);
         step("store", 15, () -> click(this.openId, 21 + 18, ContainerActionType.SHIFT_CLICK_ITEM, ShiftClickItemAction.LEFT_CLICK));
         expect("shift click stores the planks in the chest", () -> is(this.openId, 0, this.planks, 6)
                 && empty(this.openId, 39));

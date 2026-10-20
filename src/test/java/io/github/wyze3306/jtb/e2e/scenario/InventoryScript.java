@@ -17,6 +17,7 @@ import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.Clien
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerAction;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerActionType;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerType;
+import org.geysermc.mcprotocollib.protocol.data.game.inventory.DropItemAction;
 import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
 import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentTypes;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.ClientboundUpdateRecipesPacket;
@@ -266,6 +267,30 @@ abstract class InventoryScript implements E2eScenario {
 
     protected void setblock(Vector3i block, String type) {
         command("setblock " + block.getX() + " " + block.getY() + " " + block.getZ() + " " + type);
+    }
+
+    /**
+     * Throws away what an earlier run left in the open container's first {@code slots} slots:
+     * PowerNukkitX keeps a block entity's content when the block is replaced and placed again.
+     */
+    protected void emptyContainer(String name, int slots) {
+        step("empty " + name, 2, () -> {
+            for (int slot = 0; slot < slots; slot++) {
+                if (!empty(this.openId, slot)) {
+                    click(this.openId, slot, ContainerActionType.DROP_ITEM, DropItemAction.DROP_SELECTED_STACK);
+                }
+            }
+        });
+        expect(name + " emptied", () -> {
+            for (int slot = 0; slot < slots; slot++) {
+                if (!empty(this.openId, slot)) {
+                    return false;
+                }
+            }
+            return this.openId > 0;
+        });
+        // Before the player picks the thrown items up (thrown items wait 2 s).
+        step("remove thrown items", 10, () -> command("kill @e[type=item]"));
     }
 
     /** Uses the top face of a block: opens it, or places the held block item above it. */
