@@ -63,6 +63,9 @@ joins, acknowledges teleports and runs a scenario (`e2e/scenario/*Scenario`, cho
 | `item.ItemTranslator`, `item.ItemRegistry` | inventory | entity (equipment, item entities), ui |
 | `text.TextTranslator`, `text.BedrockLang` | chat | all |
 | `network.java.JavaConfiguration` | core | world (registries, ready), resourcepack |
+| `network.java.JavaChannels` (client mod channels) | core | entity, skin |
+| `skin.SignedSkins` (Mojang-signed textures of Bedrock skins: `cached` then `resolve`) | core | entity (player list) |
+| `skin.SkinMods` (full skins for ViaBedrockUtility / BedrockSkinUtility) | core | entity (player list, PlayerSkin) |
 
 The join translator (world) calls, in order: `BlockMapper.onStartGame`, `EntityTracker.onStartGame`,
 `PlayerState.onStartGame`, then builds the Java login packet.
@@ -92,3 +95,4 @@ Java → Bedrock (client packets):
 | inventory | ServerboundContainerClick, ServerboundContainerClose, ServerboundContainerButtonClick, ServerboundContainerSlotStateChanged, ServerboundSetCreativeModeSlot, ServerboundSetCarriedItem, ServerboundRenameItem, ServerboundSelectTrade, ServerboundSetBeacon, ServerboundEditBook, ServerboundPlaceRecipe, ServerboundRecipeBookChangeSettings, ServerboundRecipeBookSeenRecipe, ServerboundSelectBundleItem |
 | chat | ServerboundChat, ServerboundChatCommand, ServerboundChatCommandSigned, ServerboundChatAck, ServerboundChatSessionUpdate, ServerboundCommandSuggestion |
 | form | ServerboundCustomClickAction |
+| core | ServerboundCustomPayload `minecraft:register` / `minecraft:unregister` (other channels go to the translators) |

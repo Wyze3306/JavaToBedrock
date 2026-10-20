@@ -18,6 +18,7 @@ import org.geysermc.mcprotocollib.protocol.MinecraftConstants;
 import org.geysermc.mcprotocollib.protocol.MinecraftProtocol;
 import org.geysermc.mcprotocollib.protocol.data.ProtocolState;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundClientInformationPacket;
+import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundCustomPayloadPacket;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundKeepAlivePacket;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundResourcePackPacket;
 import org.geysermc.mcprotocollib.protocol.packet.configuration.serverbound.ServerboundFinishConfigurationPacket;
@@ -248,6 +249,8 @@ final class JavaConnectionListener extends SessionAdapter {
                 configuration.onClientInformation(information);
             } else if (packet instanceof ServerboundResourcePackPacket resourcePack) {
                 configuration.onResourcePackStatus(resourcePack.getId(), resourcePack.getStatus());
+            } else if (packet instanceof ServerboundCustomPayloadPacket payload) {
+                proxySession.get(JavaChannels.KEY).onCustomPayload(payload);
             } else if (packet instanceof ServerboundFinishConfigurationPacket) {
                 protocol.setOutboundState(ProtocolState.GAME);
                 session.switchInboundState(() -> protocol.setInboundState(ProtocolState.GAME));
@@ -275,6 +278,9 @@ final class JavaConnectionListener extends SessionAdapter {
         proxySession.execute(() -> {
             if (packet instanceof ServerboundKeepAlivePacket keepAlive) {
                 proxySession.get(JavaKeepAlive.KEY).onResponse(keepAlive.getPingId());
+                return;
+            }
+            if (packet instanceof ServerboundCustomPayloadPacket payload && proxySession.get(JavaChannels.KEY).onCustomPayload(payload)) {
                 return;
             }
             if (!this.proxy.translators().translateJava(proxySession, packet) && this.proxy.config().debug().logUnhandledJava()) {
