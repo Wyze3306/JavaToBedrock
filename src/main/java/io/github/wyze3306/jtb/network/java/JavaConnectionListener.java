@@ -1,6 +1,7 @@
 package io.github.wyze3306.jtb.network.java;
 
 import io.github.wyze3306.jtb.JavaToBedrock;
+import io.github.wyze3306.jtb.network.bedrock.BedrockReconnect;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.netty.channel.EventLoop;
 import net.kyori.adventure.text.Component;
@@ -11,12 +12,15 @@ import org.geysermc.mcprotocollib.network.compression.CompressionConfig;
 import org.geysermc.mcprotocollib.network.compression.ZlibCompression;
 import org.geysermc.mcprotocollib.network.event.session.DisconnectedEvent;
 import org.geysermc.mcprotocollib.network.event.session.DisconnectingEvent;
+import org.geysermc.mcprotocollib.network.event.session.PacketErrorEvent;
 import org.geysermc.mcprotocollib.network.event.session.SessionAdapter;
 import org.geysermc.mcprotocollib.network.packet.Packet;
 import org.geysermc.mcprotocollib.protocol.MinecraftConstants;
 import org.geysermc.mcprotocollib.protocol.MinecraftProtocol;
 import org.geysermc.mcprotocollib.protocol.data.ProtocolState;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundClientInformationPacket;
+import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundCustomClickActionPacket;
+import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundCustomPayloadPacket;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundKeepAlivePacket;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundResourcePackPacket;
 import org.geysermc.mcprotocollib.protocol.packet.configuration.serverbound.ServerboundFinishConfigurationPacket;
@@ -139,7 +143,8 @@ final class JavaConnectionListener extends SessionAdapter {
 
     private void handleStatus(Session session, Packet packet) {
         if (packet instanceof ServerboundStatusRequestPacket) {
-            session.send(new ClientboundStatusResponsePacket(this.proxy.pinger().buildJavaStatus()));
+            String host = session.getFlag(JavaFlags.HANDSHAKE_HOST);
+            session.send(new ClientboundStatusResponsePacket(this.proxy.pinger().buildJavaStatus(host)));
         } else if (packet instanceof ServerboundPingRequestPacket ping) {
             session.send(new ClientboundPongResponsePacket(ping.getPingTime()));
             session.disconnect(Component.translatable("multiplayer.status.request_handled"));
@@ -247,6 +252,11 @@ final class JavaConnectionListener extends SessionAdapter {
                 configuration.onClientInformation(information);
             } else if (packet instanceof ServerboundResourcePackPacket resourcePack) {
                 configuration.onResourcePackStatus(resourcePack.getId(), resourcePack.getStatus());
+            } else if (packet instanceof ServerboundCustomPayloadPacket payload) {
+                proxySession.get(JavaChannels.KEY).onCustomPayload(payload);
+            } else if (packet instanceof ServerboundCustomClickActionPacket click
+                    && click.getId().equals(BedrockReconnect.LEAVE_ACTION)) {
+                proxySession.disconnect(Component.text("Vous avez quitté la salle d'attente."));
             } else if (packet instanceof ServerboundFinishConfigurationPacket) {
                 protocol.setOutboundState(ProtocolState.GAME);
                 session.switchInboundState(() -> protocol.setInboundState(ProtocolState.GAME));
@@ -276,10 +286,22 @@ final class JavaConnectionListener extends SessionAdapter {
                 proxySession.get(JavaKeepAlive.KEY).onResponse(keepAlive.getPingId());
                 return;
             }
+            if (packet instanceof ServerboundCustomPayloadPacket payload && proxySession.get(JavaChannels.KEY).onCustomPayload(payload)) {
+                return;
+            }
             if (!this.proxy.translators().translateJava(proxySession, packet) && this.proxy.config().debug().logUnhandledJava()) {
                 LOGGER.info("[{}] Unhandled Java packet {}", proxySession.getName(), packet);
             }
         });
+    }
+
+    @Override
+    public void packetError(PacketErrorEvent event) {
+        // Logged here, the session is still closed by MCProtocolLib (an undecodable stream cannot recover).
+        ProxySession proxySession = this.proxySession;
+        LOGGER.warn("[{}] Java packet error ({}): {}", proxySession == null ? "?" : proxySession.getName(),
+                event.getPacketClass() == null ? "unknown packet" : event.getPacketClass().getSimpleName(),
+                event.getCause().toString(), event.getCause());
     }
 
     // ------------------------------------------------------------------ disconnect

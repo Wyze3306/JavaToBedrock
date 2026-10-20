@@ -1,0 +1,6 @@
+name: JtbE2eItems
+main: jtb.e2e.JtbE2eItems
+version: "1.0.0"
+api: ["3.0.0"]
+load: STARTUP
+description: Custom items for the JavaToBedrock resource pack end-to-end test (ResourcePackScenario)

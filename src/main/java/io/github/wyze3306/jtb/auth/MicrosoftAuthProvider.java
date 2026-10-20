@@ -3,8 +3,10 @@ package io.github.wyze3306.jtb.auth;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.github.wyze3306.jtb.JavaToBedrock;
+import io.github.wyze3306.jtb.form.Dialogs;
 import io.github.wyze3306.jtb.network.bedrock.BedrockConnector;
 import io.github.wyze3306.jtb.session.ProxySession;
+import net.kyori.adventure.text.Component;
 import net.lenni0451.commons.httpclient.HttpClient;
 import net.raphimc.minecraftauth.MinecraftAuth;
 import net.raphimc.minecraftauth.bedrock.BedrockAuthManager;
@@ -12,9 +14,7 @@ import net.raphimc.minecraftauth.bedrock.model.MinecraftMultiplayerToken;
 import net.raphimc.minecraftauth.msa.model.MsaDeviceCode;
 import net.raphimc.minecraftauth.msa.service.impl.DeviceCodeMsaAuthService;
 import net.raphimc.minecraftauth.util.holder.listener.BasicChangeListener;
-import org.cloudburstmc.nbt.NbtList;
 import org.cloudburstmc.nbt.NbtMap;
-import org.cloudburstmc.nbt.NbtType;
 import org.cloudburstmc.protocol.bedrock.data.auth.PlayerAuthenticationType;
 import org.geysermc.mcprotocollib.protocol.packet.common.clientbound.ClientboundClearDialogPacket;
 import org.geysermc.mcprotocollib.protocol.packet.configuration.clientbound.ClientboundShowDialogConfigurationPacket;
@@ -119,27 +119,14 @@ public final class MicrosoftAuthProvider implements AuthProvider {
      */
     private static void showDeviceCode(ProxySession session, MsaDeviceCode code) {
         LOGGER.info("[{}] Microsoft sign-in: open {} and enter the code {}", session.getName(), code.getVerificationUri(), code.getUserCode());
-        NbtMap body = NbtMap.builder()
-                .putString("type", "minecraft:plain_message")
-                .putString("contents", "Ce serveur Bedrock demande un compte Microsoft.\n\n"
+        NbtMap dialog = Dialogs.notice(Component.text("Connexion Microsoft / Xbox"))
+                .body(Dialogs.plainMessage(Component.text("Ce serveur Bedrock demande un compte Microsoft.\n\n"
                         + "Ouvrez " + code.getVerificationUri() + " et saisissez le code :\n\n"
                         + code.getUserCode() + "\n\n"
-                        + "La connexion continue automatiquement ensuite. Elle sera mémorisée pour les prochaines fois.")
-                .putInt("width", 300)
-                .build();
-        NbtMap action = NbtMap.builder()
-                .putString("label", "Ouvrir la page de connexion")
-                .putCompound("action", NbtMap.builder()
-                        .putString("type", "minecraft:open_url")
-                        .putString("url", code.getDirectVerificationUri())
-                        .build())
-                .build();
-        NbtMap dialog = NbtMap.builder()
-                .putString("type", "minecraft:notice")
-                .putString("title", "Connexion Microsoft / Xbox")
-                .putList("body", NbtType.COMPOUND, new NbtList<>(NbtType.COMPOUND, body))
-                .putCompound("action", action)
-                .putBoolean("can_close_with_escape", false)
+                        + "La connexion continue automatiquement ensuite. Elle sera mémorisée pour les prochaines fois."), Dialogs.CONTENT_WIDTH))
+                .noticeAction(Dialogs.button(Component.text("Ouvrir la page de connexion"),
+                        Dialogs.openUrl(code.getDirectVerificationUri())))
+                .canCloseWithEscape(false)
                 .build();
         session.sendJavaDirect(new ClientboundShowDialogConfigurationPacket(dialog));
     }

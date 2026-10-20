@@ -1,7 +1,9 @@
 package io.github.wyze3306.jtb.network.java;
 
 import io.github.wyze3306.jtb.JavaToBedrock;
+import io.github.wyze3306.jtb.network.bedrock.BedrockReconnect;
 import io.github.wyze3306.jtb.mapping.JavaRegistries;
+import io.github.wyze3306.jtb.resourcepack.ResourcePackState;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
 import io.github.wyze3306.jtb.session.StateKey;
@@ -35,6 +37,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * Holds the Java client in the configuration phase until everything it needs is ready, then lets it
@@ -52,14 +55,19 @@ public final class JavaConfiguration implements SessionState {
 
     public static final StateKey<JavaConfiguration> KEY = StateKey.of("java-configuration", JavaConfiguration::new);
 
-    /** If the Bedrock server never says it is ready, let the player in anyway after this delay. */
+    /** If the Bedrock server never starts the game within this delay, the player is disconnected. */
     private static final long BEDROCK_READY_TIMEOUT_SECONDS = 60;
+
+    /** Contributions run for every session when its configuration begins, by name (idempotent). */
+    private static final Map<String, Consumer<JavaConfiguration>> CONTRIBUTORS = new LinkedHashMap<>();
 
     private final ProxySession session;
     private final Map<Key, List<RegistryEntry>> extraEntries = new LinkedHashMap<>();
+    private final Map<Key, Map<Key, List<Integer>>> extraTags = new LinkedHashMap<>();
     private final Set<UUID> pendingPacks = new HashSet<>();
     private final Map<UUID, Boolean> requiredPacks = new HashMap<>();
     private final List<Runnable> gameStartListeners = new ArrayList<>();
+    private final List<Runnable> configurationListeners = new ArrayList<>();
     private @Nullable ServerboundClientInformationPacket clientInformation;
     private boolean knownPacksAnswered;
     private boolean clientKnowsVanilla;
@@ -76,16 +84,47 @@ public final class JavaConfiguration implements SessionState {
 
     // ------------------------------------------------------------------ start
 
+    /**
+     * Registers code that every session runs when its configuration phase begins, to add registry
+     * entries and tags that do not depend on the Bedrock server (e.g. a pause menu dialog). Meant for
+     * startup; registering the same name again replaces the previous contribution.
+     */
+    public static void addContributor(String name, Consumer<JavaConfiguration> contributor) {
+        synchronized (CONTRIBUTORS) {
+            CONTRIBUTORS.put(name, contributor);
+        }
+    }
+
     void begin() {
+        List<Consumer<JavaConfiguration>> contributors;
+        synchronized (CONTRIBUTORS) {
+            contributors = List.copyOf(CONTRIBUTORS.values());
+        }
+        for (Consumer<JavaConfiguration> contributor : contributors) {
+            try {
+                contributor.accept(this);
+            } catch (RuntimeException e) {
+                this.session.logger().error("[{}] Configuration contribution failed", this.session.getName(), e);
+            }
+        }
         this.session.sendJavaDirect(new ClientboundCustomPayloadPacket(Key.key("minecraft:brand"),
                 encodeString(JavaToBedrock.NAME)));
         this.session.sendJavaDirect(new ClientboundSelectKnownPacks(List.of(
                 new KnownPack("minecraft", "core", JavaServer.javaVersionName()))));
+        scheduleReadyTimeout();
+    }
+
+    private void scheduleReadyTimeout() {
+        if (this.readyTimeout != null) {
+            this.readyTimeout.cancel(false);
+        }
         this.readyTimeout = this.session.schedule(() -> {
-            if (!this.bedrockReady) {
-                this.session.logger().warn("[{}] Bedrock server did not finish the join sequence in {}s, continuing anyway",
+            if (!this.bedrockReady && !this.session.get(BedrockReconnect.KEY).isWaiting()) {
+                // Without StartGame there is no Java login packet to send: the client cannot play.
+                this.session.logger().warn("[{}] Bedrock server did not start the game within {}s",
                         this.session.getName(), BEDROCK_READY_TIMEOUT_SECONDS);
-                markBedrockReady();
+                this.session.disconnect(Component.translatable("disconnect.timeout")
+                        .append(Component.text(" (serveur Bedrock)")));
             }
         }, BEDROCK_READY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
@@ -130,6 +169,42 @@ public final class JavaConfiguration implements SessionState {
         return base;
     }
 
+    /**
+     * Adds entry ids (as returned by {@link #addRegistryEntries}) to a tag of a synchronised registry,
+     * after its vanilla members. Must be called before {@link #markBedrockReady()}.
+     */
+    public void addTagEntries(Key registry, Key tag, int... ids) {
+        if (this.finishSent) {
+            throw new IllegalStateException("Registries already sent");
+        }
+        List<Integer> list = this.extraTags.computeIfAbsent(registry, k -> new LinkedHashMap<>())
+                .computeIfAbsent(tag, k -> new ArrayList<>());
+        for (int id : ids) {
+            list.add(id);
+        }
+    }
+
+    private Map<Key, Map<Key, int[]>> tags() {
+        if (this.extraTags.isEmpty()) {
+            return JavaRegistries.tags();
+        }
+        Map<Key, Map<Key, int[]>> tags = new LinkedHashMap<>(JavaRegistries.tags());
+        for (Map.Entry<Key, Map<Key, List<Integer>>> registry : this.extraTags.entrySet()) {
+            Map<Key, int[]> registryTags = new LinkedHashMap<>(tags.getOrDefault(registry.getKey(), Map.of()));
+            for (Map.Entry<Key, List<Integer>> tag : registry.getValue().entrySet()) {
+                int[] vanilla = registryTags.getOrDefault(tag.getKey(), new int[0]);
+                int[] merged = new int[vanilla.length + tag.getValue().size()];
+                System.arraycopy(vanilla, 0, merged, 0, vanilla.length);
+                for (int i = 0; i < tag.getValue().size(); i++) {
+                    merged[vanilla.length + i] = tag.getValue().get(i);
+                }
+                registryTags.put(tag.getKey(), merged);
+            }
+            tags.put(registry.getKey(), registryTags);
+        }
+        return tags;
+    }
+
     private void sendRegistries() {
         for (JavaRegistries.Registry registry : JavaRegistries.registries().values()) {
             List<RegistryEntry> entries = JavaRegistries.entriesForClient(registry, this.clientKnowsVanilla);
@@ -139,7 +214,7 @@ public final class JavaConfiguration implements SessionState {
             }
             this.session.sendJavaDirect(new ClientboundRegistryDataPacket(registry.key(), entries));
         }
-        this.session.sendJavaDirect(new ClientboundUpdateTagsPacket(JavaRegistries.tags()));
+        this.session.sendJavaDirect(new ClientboundUpdateTagsPacket(tags()));
         this.session.sendJavaDirect(new ClientboundUpdateEnabledFeaturesPacket(new Key[]{Key.key("minecraft:vanilla")}));
     }
 
@@ -171,6 +246,7 @@ public final class JavaConfiguration implements SessionState {
     }
 
     void onResourcePackStatus(UUID id, ResourcePackStatus status) {
+        this.session.get(ResourcePackState.KEY).onClientStatus(id, status);
         switch (status) {
             case ACCEPTED, DOWNLOADED -> {
                 return;
@@ -202,6 +278,7 @@ public final class JavaConfiguration implements SessionState {
         if (this.readyTimeout != null) {
             this.readyTimeout.cancel(false);
         }
+        this.session.get(BedrockReconnect.KEY).onBedrockReady();
         tryFinish();
     }
 
@@ -224,9 +301,8 @@ public final class JavaConfiguration implements SessionState {
             return;
         }
         this.finishSent = true;
-        if (!this.reconfiguring) {
-            sendRegistries();
-        }
+        // Sent on every (re)configuration: another Bedrock server may define other biomes.
+        sendRegistries();
         this.session.get(JavaKeepAlive.KEY).setPaused(true);
         this.session.sendJavaDirect(new ClientboundFinishConfigurationPacket());
     }
@@ -255,12 +331,17 @@ public final class JavaConfiguration implements SessionState {
         this.reconfiguring = true;
         this.reconfigurationAcknowledged = false;
         this.finishSent = false;
+        this.session.clearPendingGamePackets();
         this.session.enterConfiguration();
         this.session.get(JavaKeepAlive.KEY).setPaused(true);
         MinecraftProtocol protocol = (MinecraftProtocol) this.session.javaSession().getPacketProtocol();
-        // The outbound state must change right after this packet is written, before anything else.
-        this.session.javaSession().send(new ClientboundStartConfigurationPacket(),
-                () -> protocol.setOutboundState(ProtocolState.CONFIGURATION));
+        // The outbound state must change right after this packet is encoded and before any other packet:
+        // on the channel's event loop the write encodes synchronously, so nothing can slip in between.
+        var channel = this.session.javaSession().getChannel();
+        channel.eventLoop().execute(() -> {
+            this.session.javaSession().send(new ClientboundStartConfigurationPacket());
+            protocol.setOutboundState(ProtocolState.CONFIGURATION);
+        });
     }
 
     /**
@@ -271,10 +352,41 @@ public final class JavaConfiguration implements SessionState {
         return this.session.javaPhase() == ProxySession.JavaPhase.CONFIGURATION;
     }
 
+    /**
+     * Sends the client back to configuration to join another Bedrock server: everything waits again
+     * for the new server's StartGame (and resource packs), then a fresh Java login rebuilds the world.
+     */
+    public void startServerSwitch() {
+        this.bedrockReady = false;
+        this.extraEntries.clear();
+        this.pendingPacks.clear();
+        this.resourcePackHolds = 0;
+        startReconfiguration();
+        scheduleReadyTimeout();
+    }
+
     void onReconfigurationAcknowledged() {
         this.reconfigurationAcknowledged = true;
         this.session.get(JavaKeepAlive.KEY).setPaused(false);
+        List<Runnable> listeners = List.copyOf(this.configurationListeners);
+        this.configurationListeners.clear();
+        for (Runnable listener : listeners) {
+            listener.run();
+        }
         tryFinish();
+    }
+
+    /**
+     * Runs {@code task} as soon as configuration-phase packets (dialogs...) can be sent: now during
+     * the first configuration or an acknowledged reconfiguration, otherwise once the client
+     * acknowledges the reconfiguration.
+     */
+    public void whenConfiguring(Runnable task) {
+        if (isConfiguring() && (!this.reconfiguring || this.reconfigurationAcknowledged)) {
+            task.run();
+        } else {
+            this.configurationListeners.add(task);
+        }
     }
 
     private static byte[] encodeString(String value) {
@@ -288,6 +400,11 @@ public final class JavaConfiguration implements SessionState {
         out.write(length);
         out.writeBytes(bytes);
         return out.toByteArray();
+    }
+
+    @Override
+    public boolean survivesServerSwitch() {
+        return true;
     }
 
     @Override

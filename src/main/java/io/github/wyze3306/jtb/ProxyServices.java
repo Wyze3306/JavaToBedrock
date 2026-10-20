@@ -1,6 +1,7 @@
 package io.github.wyze3306.jtb;
 
 import io.github.wyze3306.jtb.resourcepack.JavaPackService;
+import io.github.wyze3306.jtb.skin.SignedSkins;
 
 import java.util.List;
 
@@ -14,7 +15,8 @@ final class ProxyServices {
 
     static List<ProxyService> create(JavaToBedrock proxy) {
         return List.of(
-                new JavaPackService(proxy)
+                new JavaPackService(proxy),
+                new SignedSkins(proxy)
         );
     }
 }

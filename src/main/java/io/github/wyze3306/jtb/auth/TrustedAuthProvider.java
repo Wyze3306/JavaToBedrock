@@ -7,6 +7,8 @@ import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.lang.JoseException;
 
 import java.security.KeyPair;
+import java.security.PublicKey;
+import java.util.UUID;
 
 /**
  * Offline-style identity plus a proxy assertion: a JWS signed with the proxy's long-term key that
@@ -39,21 +41,29 @@ public final class TrustedAuthProvider extends OfflineAuthProvider {
     @Override
     protected void decorate(ProxySession session, KeyPair keyPair, JsonObject payload) throws JoseException {
         GameProfile profile = session.getProfile();
-        long now = System.currentTimeMillis() / 1000;
+        payload.addProperty(CLAIM, assertion(this.proxyKey, keyPair.getPublic(), profile.getId(), profile.getName(),
+                session.getBedrockName(), this.onlineMode, System.currentTimeMillis() / 1000));
+    }
+
+    /**
+     * Builds the signed assertion (compact JWS) vouching for a Java identity bound to an identity key.
+     */
+    static String assertion(KeyPair proxyKey, PublicKey identityKey, UUID javaUuid, String javaName, String bedrockName,
+                            boolean onlineMode, long nowSeconds) throws JoseException {
         JsonObject claims = new JsonObject();
         claims.addProperty("iss", ISSUER);
-        claims.addProperty("sub", profile.getId().toString());
-        claims.addProperty("name", profile.getName());
-        claims.addProperty("bedrockName", session.getBedrockName());
-        claims.addProperty("cpk", BedrockCrypto.encodeKey(keyPair.getPublic()));
-        claims.addProperty("online", this.onlineMode);
-        claims.addProperty("iat", now);
-        claims.addProperty("exp", now + VALIDITY_SECONDS);
+        claims.addProperty("sub", javaUuid.toString());
+        claims.addProperty("name", javaName);
+        claims.addProperty("bedrockName", bedrockName);
+        claims.addProperty("cpk", BedrockCrypto.encodeKey(identityKey));
+        claims.addProperty("online", onlineMode);
+        claims.addProperty("iat", nowSeconds);
+        claims.addProperty("exp", nowSeconds + VALIDITY_SECONDS);
 
         JsonWebSignature jws = new JsonWebSignature();
         jws.setAlgorithmHeaderValue(BedrockCrypto.ALGORITHM);
         jws.setPayload(claims.toString());
-        jws.setKey(this.proxyKey.getPrivate());
-        payload.addProperty(CLAIM, jws.getCompactSerialization());
+        jws.setKey(proxyKey.getPrivate());
+        return jws.getCompactSerialization();
     }
 }

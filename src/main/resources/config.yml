@@ -21,8 +21,18 @@ java:
 
 # --- Côté Bedrock : le serveur cible ------------------------------------------
 bedrock:
+  # Serveur Bedrock par défaut.
   address: 127.0.0.1
   port: 19132
+  # Autres serveurs Bedrock derrière ce proxy (facultatif) : nom -> adresse[:port].
+  # Les joueurs Java en changent avec /jtb server <nom>.
+  servers: {}
+  #  lobby: 127.0.0.1:19133
+  #  survie: survie.local:19134
+  # Serveur choisi selon l'adresse tapée par le joueur Java (facultatif) : hôte -> nom de serveur
+  # ("default" = le serveur par défaut). Le MOTD affiché est celui de ce serveur.
+  forced-hosts: {}
+  #  survie.example.org: survie
   # Méthode d'authentification auprès du serveur Bedrock :
   #   offline   : identité auto-signée (le serveur doit avoir xbox-auth=false)
   #   microsoft : chaque joueur Java se connecte une fois à son compte Microsoft
@@ -31,7 +41,8 @@ bedrock:
   #               PowerNukkitX vérifie la signature (section java-bridge de pnx.yml)
   auth: offline
   # Clé privée du proxy pour le mode "trusted" (générée au premier démarrage).
-  # Copiez la clé publique affichée au démarrage dans pnx.yml (java-bridge.proxy-public-key).
+  # Copiez la clé publique affichée au démarrage dans pnx.yml
+  # (network-settings.java-bridge.proxyPublicKeys).
   trusted-key-file: jtb-proxy-key.pem
   # Préfixe ajouté au pseudo Bedrock des joueurs Java (ex: "." pour éviter les doublons).
   username-prefix: ""
@@ -39,6 +50,20 @@ bedrock:
   connect-timeout: 10
   # Langue envoyée au serveur Bedrock si le client Java n'en a pas encore donné.
   default-language: fr_FR
+  # Suivre les transferts du serveur Bedrock (TransferPacket, ex. lobby -> mini-jeu) :
+  # le joueur Java change de serveur sans être déconnecté.
+  follow-transfers: true
+  # Salle d'attente : si le serveur Bedrock s'arrête, redémarre ou ne répond plus, les joueurs Java
+  # restent connectés (écran de configuration avec un message) et rejoignent automatiquement le
+  # serveur dès son retour. Les expulsions et bannissements déconnectent normalement.
+  reconnect:
+    # Attente maximale en secondes (0 = déconnecter tout de suite).
+    timeout: 300
+    # Messages de déconnexion Bedrock qui annoncent un arrêt du serveur (en plus de la raison
+    # « shutdown » du protocole). PowerNukkitX envoie misc-settings.shutdownMessage ("Server closed").
+    shutdown-messages:
+      - "Server closed"
+      - "disconnectionScreen.serverShutdown"
 
 # --- Packs de ressources ------------------------------------------------------
 resource-packs:
@@ -75,6 +100,18 @@ features:
   custom-entities: true
   # Envoie le skin Java du joueur au serveur Bedrock.
   java-skins: true
+
+# --- Skins des joueurs Bedrock vus par les joueurs Java -------------------------
+# Java n'affiche que les skins signés par Mojang. Le proxy réutilise la signature d'origine des
+# joueurs Java qui passent par lui, et peut faire signer les skins Bedrock (résultats mis en cache).
+skins:
+  enabled: true
+  # API publique GeyserMC : dernier skin connu d'un joueur Bedrock (par XUID, donc seulement sur
+  # les serveurs avec authentification Xbox). Gratuit, parfois pas à jour.
+  geyser-api: true
+  # Clé API MineSkin (https://account.mineskin.org/keys) pour signer n'importe quel skin Bedrock
+  # exact. Vide = désactivé.
+  mineskin-api-key: ""
 
 # --- Débogage ---------------------------------------------------------------------
 debug:

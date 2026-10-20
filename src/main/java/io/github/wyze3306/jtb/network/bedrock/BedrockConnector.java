@@ -4,6 +4,7 @@ import io.github.wyze3306.jtb.JavaToBedrock;
 import io.github.wyze3306.jtb.auth.LoginData;
 import io.github.wyze3306.jtb.skin.BedrockSkinData;
 import io.github.wyze3306.jtb.skin.JavaSkinProvider;
+import io.github.wyze3306.jtb.skin.SignedSkins;
 import io.github.wyze3306.jtb.config.ProxyConfig;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.netty.bootstrap.Bootstrap;
@@ -45,10 +46,16 @@ public final class BedrockConnector implements AutoCloseable {
 
     private final JavaToBedrock proxy;
     private final EventLoopGroup group;
+    private final BedrockServers servers;
 
     public BedrockConnector(JavaToBedrock proxy) {
         this.proxy = proxy;
+        this.servers = new BedrockServers(proxy.config().bedrock());
         this.group = new MultiThreadIoEventLoopGroup(0, new DefaultThreadFactory("jtb-bedrock", true), NioIoHandler.newFactory());
+    }
+
+    public BedrockServers servers() {
+        return this.servers;
     }
 
     public static BedrockCodec defaultCodec() {
@@ -60,11 +67,11 @@ public final class BedrockConnector implements AutoCloseable {
     }
 
     /**
-     * The codec to use for the configured server: the default one, adjusted to the protocol number
-     * the server advertises in its ping when it differs only by that number.
+     * The codec to use for {@code server}: the default one, adjusted to the protocol number the server
+     * advertises in its ping when it differs only by that number.
      */
-    public BedrockCodec codecForServer() {
-        BedrockPinger.Status status = this.proxy.pinger().status();
+    public BedrockCodec codecForServer(InetSocketAddress server) {
+        BedrockPinger.Status status = this.proxy.pinger().status(server);
         if (status != null && status.protocolVersion() > 0 && status.protocolVersion() != DEFAULT_CODEC.getProtocolVersion()) {
             BedrockCodec known = BedrockCodecs.byProtocol(status.protocolVersion());
             if (known != null) {
@@ -80,11 +87,17 @@ public final class BedrockConnector implements AutoCloseable {
      * connection exists so a slow sign-in (Microsoft device code) cannot time the connection out.
      */
     public void start(ProxySession session) {
+        start(session, this.servers.forJavaHost(session.getJavaHost()).address());
+    }
+
+    /** Same as {@link #start(ProxySession)} with an explicit server (Bedrock transfers). */
+    public void start(ProxySession session, InetSocketAddress target) {
+        session.get(BedrockReconnect.KEY).connecting(target);
         CompletableFuture<LoginData> identity = this.proxy.authProvider().login(session);
         CompletableFuture<BedrockSkinData> skin = JavaSkinProvider.forProfile(session.getProfile(),
-                this.proxy.config().features().javaSkins());
+                this.proxy.config().features().javaSkins(), this.proxy.service(SignedSkins.class));
         identity.thenCombine(skin, (loginData, skinData) -> {
-            session.execute(() -> connect(session, loginData, skinData));
+            session.execute(() -> connect(session, target, loginData, skinData));
             return null;
         }).exceptionally(error -> {
             LOGGER.warn("[{}] Bedrock authentication failed", session.getName(), error);
@@ -106,13 +119,13 @@ public final class BedrockConnector implements AutoCloseable {
      * Connects the session to the configured Bedrock server and runs the login with {@code login}.
      * Kicks the Java player with an explanation when the server cannot be reached.
      */
-    public void connect(ProxySession session, LoginData login, BedrockSkinData skin) {
+    public void connect(ProxySession session, InetSocketAddress address, LoginData login, BedrockSkinData skin) {
         if (session.isClosed()) {
             return;
         }
+        session.setXuid(login.xuid());
         ProxyConfig.Bedrock config = this.proxy.config().bedrock();
-        InetSocketAddress address = new InetSocketAddress(config.address(), config.port());
-        BedrockCodec codec = codecForServer();
+        BedrockCodec codec = codecForServer(address);
 
         Bootstrap bootstrap = new Bootstrap()
                 .group(this.group)
@@ -120,7 +133,9 @@ public final class BedrockConnector implements AutoCloseable {
                 .option(RakChannelOption.RAK_PROTOCOL_VERSION, codec.getRaknetProtocolVersion())
                 .option(RakChannelOption.RAK_GUID, ThreadLocalRandom.current().nextLong())
                 .option(RakChannelOption.RAK_CONNECT_TIMEOUT, TimeUnit.SECONDS.toMillis(config.connectTimeoutSeconds()))
-                .option(RakChannelOption.RAK_SESSION_TIMEOUT, TimeUnit.SECONDS.toMillis(30))
+                // A crashed server is noticed after this delay (a clean stop sends a disconnect packet);
+                // RakNet acks run on network threads, so a lagging server does not trip it.
+                .option(RakChannelOption.RAK_SESSION_TIMEOUT, TimeUnit.SECONDS.toMillis(15))
                 .handler(new BedrockClientInitializer() {
                     @Override
                     protected void initSession(BedrockClientSession bedrock) {
@@ -136,16 +151,21 @@ public final class BedrockConnector implements AutoCloseable {
                 });
 
         LOGGER.info("[{}] Connecting to Bedrock server {}:{} (protocol {})", session.getName(),
-                config.address(), config.port(), codec.getProtocolVersion());
+                address.getHostString(), address.getPort(), codec.getProtocolVersion());
         ChannelFuture future = bootstrap.connect(address);
         future.addListener(result -> {
             if (!result.isSuccess()) {
                 LOGGER.warn("[{}] Could not reach the Bedrock server {}:{}: {}", session.getName(),
-                        config.address(), config.port(), result.cause() == null ? "?" : result.cause().toString());
-                session.disconnect(Component.text("Impossible de joindre le serveur Bedrock ", NamedTextColor.RED)
-                        .append(Component.text(config.address() + ":" + config.port(), NamedTextColor.GRAY))
-                        .append(Component.newline())
-                        .append(Component.text(String.valueOf(result.cause() == null ? "" : result.cause().getMessage()), NamedTextColor.DARK_GRAY)));
+                        address.getHostString(), address.getPort(), result.cause() == null ? "?" : result.cause().toString());
+                session.execute(() -> {
+                    if (session.get(BedrockReconnect.KEY).onConnectionLost(Component.text("injoignable"))) {
+                        return;
+                    }
+                    session.disconnect(Component.text("Impossible de joindre le serveur Bedrock ", NamedTextColor.RED)
+                            .append(Component.text(address.getHostString() + ":" + address.getPort(), NamedTextColor.GRAY))
+                            .append(Component.newline())
+                            .append(Component.text(String.valueOf(result.cause() == null ? "" : result.cause().getMessage()), NamedTextColor.DARK_GRAY)));
+                });
             }
         });
     }

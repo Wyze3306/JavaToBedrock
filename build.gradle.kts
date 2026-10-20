@@ -31,6 +31,7 @@ configurations.all {
 
 dependencies {
     implementation(libs.mcprotocollib)
+    implementation(libs.minecraftauth)
     implementation(libs.bedrock.connection)
     implementation(libs.netty.all)
     implementation(libs.netty.raknet)
@@ -87,8 +88,9 @@ tasks.shadowJar {
     archiveClassifier.set("")
     archiveVersion.set("")
     mergeServiceFiles()
-    // log4j2 plugin cache files from several jars must be merged, not overwritten.
-    transform(com.github.jengelman.gradle.plugins.shadow.transformers.Log4j2PluginsCacheFileTransformer::class.java)
+    // Netty native transports for other platforms are never used by the proxy (NIO only).
+    exclude("META-INF/native/*windows*", "META-INF/native/*osx*", "META-INF/native/*aarch_64*", "META-INF/native/*riscv*",
+        "META-INF/native/*loongarch*", "META-INF/native/*s390x*", "META-INF/native/*ppcle*")
 }
 
 tasks.build {

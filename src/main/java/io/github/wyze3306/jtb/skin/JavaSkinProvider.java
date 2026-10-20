@@ -4,6 +4,7 @@ import org.geysermc.mcprotocollib.auth.GameProfile;
 import org.geysermc.mcprotocollib.auth.texture.Texture;
 import org.geysermc.mcprotocollib.auth.texture.TextureModel;
 import org.geysermc.mcprotocollib.auth.texture.TextureType;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,9 +43,10 @@ public final class JavaSkinProvider {
 
     /**
      * The Bedrock skin of {@code profile}. Never fails: falls back to a generated default skin when the
-     * profile has no skin or the download fails or takes more than a few seconds.
+     * profile has no skin or the download fails or takes more than a few seconds. The signed textures
+     * of the profile are recorded in {@code signedSkins} so other Java players can see this skin.
      */
-    public static CompletableFuture<BedrockSkinData> forProfile(GameProfile profile, boolean enabled) {
+    public static CompletableFuture<BedrockSkinData> forProfile(GameProfile profile, boolean enabled, @Nullable SignedSkins signedSkins) {
         if (!enabled) {
             return CompletableFuture.completedFuture(DefaultSkins.forUuid(profile.getId()));
         }
@@ -65,7 +67,15 @@ public final class JavaSkinProvider {
         UUID id = profile.getId();
         return skinBytes.thenCombine(capeBytes, (skinPng, capePng) -> {
                     BedrockSkinData data = decode(skin.getHash(), skinPng, capePng, slim);
-                    return data != null ? data : DefaultSkins.forUuid(id);
+                    if (data == null) {
+                        return DefaultSkins.forUuid(id);
+                    }
+                    GameProfile.Property property = profile.getProperty("textures");
+                    if (signedSkins != null && property != null && property.getSignature() != null) {
+                        signedSkins.remember(data.width(), data.height(), data.rgba(),
+                                new SignedSkins.Textures(property.getValue(), property.getSignature()));
+                    }
+                    return data;
                 })
                 .completeOnTimeout(DefaultSkins.forUuid(id), 6, TimeUnit.SECONDS)
                 .exceptionally(t -> DefaultSkins.forUuid(id));

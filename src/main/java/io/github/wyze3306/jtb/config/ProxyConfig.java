@@ -10,13 +10,21 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.UnaryOperator;
 
 /**
  * Immutable view of {@code config.yml}. Missing keys fall back to the defaults shipped in the jar,
  * so an old configuration file keeps working when new options are added.
+ * <p>
+ * Every value can be overridden by an environment variable named {@code JTB_} followed by its path
+ * in upper case with dots and dashes replaced by underscores ({@code bedrock.address} &rarr;
+ * {@code JTB_BEDROCK_ADDRESS}, {@code resource-packs.public-url} &rarr;
+ * {@code JTB_RESOURCE_PACKS_PUBLIC_URL}), which is how containers are usually configured.
  */
 public final class ProxyConfig {
 
@@ -32,7 +40,12 @@ public final class ProxyConfig {
     }
 
     public record Bedrock(String address, int port, AuthMode auth, String trustedKeyFile, String usernamePrefix,
-                          int connectTimeoutSeconds, String defaultLanguage) {
+                          int connectTimeoutSeconds, String defaultLanguage, boolean followTransfers, Reconnect reconnect,
+                          Map<String, String> servers, Map<String, String> forcedHosts) {
+    }
+
+    /** The waiting room used while the Bedrock server is down. */
+    public record Reconnect(int timeoutSeconds, List<String> shutdownMessages) {
     }
 
     public record ResourcePacks(boolean enabled, String httpBind, int httpPort, String publicUrl, boolean required,
@@ -45,6 +58,9 @@ public final class ProxyConfig {
     public record Features(boolean forms, boolean customBlocks, boolean customEntities, boolean javaSkins) {
     }
 
+    public record Skins(boolean enabled, boolean geyserApi, String mineskinApiKey) {
+    }
+
     public record Debug(boolean logUnhandledBedrock, boolean logUnhandledJava) {
     }
 
@@ -53,6 +69,7 @@ public final class ProxyConfig {
     private final ResourcePacks resourcePacks;
     private final World world;
     private final Features features;
+    private final Skins skins;
     private final Debug debug;
 
     private ProxyConfig(Section root) {
@@ -63,7 +80,10 @@ public final class ProxyConfig {
         Section b = root.section("bedrock");
         this.bedrock = new Bedrock(b.string("address"), b.integer("port"),
                 AuthMode.valueOf(b.string("auth").toUpperCase(Locale.ROOT)), b.string("trusted-key-file"),
-                b.string("username-prefix"), b.integer("connect-timeout"), b.string("default-language"));
+                b.string("username-prefix"), b.integer("connect-timeout"), b.string("default-language"),
+                b.bool("follow-transfers"),
+                new Reconnect(b.section("reconnect").integer("timeout"), b.section("reconnect").strings("shutdown-messages")),
+                b.stringMap("servers"), b.stringMap("forced-hosts"));
 
         Section r = root.section("resource-packs");
         this.resourcePacks = new ResourcePacks(r.bool("enabled"), r.string("http-bind"), r.integer("http-port"),
@@ -77,6 +97,9 @@ public final class ProxyConfig {
         Section f = root.section("features");
         this.features = new Features(f.bool("forms"), f.bool("custom-blocks"), f.bool("custom-entities"), f.bool("java-skins"));
 
+        Section s = root.section("skins");
+        this.skins = new Skins(s.bool("enabled"), s.bool("geyser-api"), s.string("mineskin-api-key"));
+
         Section d = root.section("debug");
         this.debug = new Debug(d.bool("log-unhandled-bedrock"), d.bool("log-unhandled-java"));
     }
@@ -89,6 +112,13 @@ public final class ProxyConfig {
      * @throws IllegalArgumentException if a value has the wrong type or an unknown enum constant
      */
     public static ProxyConfig load(Path file) throws IOException {
+        return load(file, System::getenv);
+    }
+
+    /**
+     * Same as {@link #load(Path)} with the environment variables read from {@code environment}.
+     */
+    static ProxyConfig load(Path file, UnaryOperator<String> environment) throws IOException {
         Map<String, Object> defaults = readDefaults();
         if (Files.notExists(file)) {
             try (InputStream in = defaultsStream()) {
@@ -99,7 +129,7 @@ public final class ProxyConfig {
         try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             user = yaml().load(reader);
         }
-        return new ProxyConfig(new Section("", user == null ? Map.of() : user, defaults));
+        return new ProxyConfig(new Section("", user == null ? Map.of() : user, defaults, environment));
     }
 
     /**
@@ -107,7 +137,7 @@ public final class ProxyConfig {
      */
     public static ProxyConfig defaults() {
         try {
-            return new ProxyConfig(new Section("", Map.of(), readDefaults()));
+            return new ProxyConfig(new Section("", Map.of(), readDefaults(), name -> null));
         } catch (IOException e) {
             throw new IllegalStateException("Default configuration missing from the jar", e);
         }
@@ -133,6 +163,10 @@ public final class ProxyConfig {
         return this.features;
     }
 
+    public Skins skins() {
+        return this.skins;
+    }
+
     public Debug debug() {
         return this.debug;
     }
@@ -153,9 +187,10 @@ public final class ProxyConfig {
     }
 
     /**
-     * A YAML mapping with a parallel mapping of defaults.
+     * A YAML mapping with a parallel mapping of defaults and the environment overriding both.
      */
-    private record Section(String path, Map<String, Object> values, Map<String, Object> defaults) {
+    private record Section(String path, Map<String, Object> values, Map<String, Object> defaults,
+                           UnaryOperator<String> environment) {
 
         @SuppressWarnings("unchecked")
         Section section(String key) {
@@ -163,11 +198,16 @@ public final class ProxyConfig {
             Object def = this.defaults.get(key);
             return new Section(this.path + key + ".",
                     value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of(),
-                    def instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of());
+                    def instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of(),
+                    this.environment);
         }
 
         private Object raw(String key) {
-            Object value = this.values.get(key);
+            String variable = "JTB_" + (this.path + key).toUpperCase(Locale.ROOT).replace('.', '_').replace('-', '_');
+            Object value = this.environment.apply(variable);
+            if (value == null) {
+                value = this.values.get(key);
+            }
             if (value == null) {
                 value = this.defaults.get(key);
             }
@@ -191,6 +231,35 @@ public final class ProxyConfig {
             } catch (NumberFormatException e) {
                 throw new IllegalArgumentException("Configuration value " + this.path + key + " must be a number", e);
             }
+        }
+
+        /** A list of strings; an environment variable gives it comma-separated. */
+        List<String> strings(String key) {
+            Object value = raw(key);
+            if (value instanceof List<?> list) {
+                return list.stream().map(String::valueOf).toList();
+            }
+            String text = value.toString().trim();
+            return text.isEmpty() ? List.of() : List.of(text.split("\\s*,\\s*"));
+        }
+
+        /** A mapping of strings; an environment variable gives it as {@code key=value,key=value}. */
+        Map<String, String> stringMap(String key) {
+            Object value = raw(key);
+            Map<String, String> map = new LinkedHashMap<>();
+            if (value instanceof Map<?, ?> yaml) {
+                yaml.forEach((k, v) -> map.put(String.valueOf(k), String.valueOf(v)));
+                return map;
+            }
+            for (String entry : value.toString().split(",")) {
+                int equals = entry.indexOf('=');
+                if (equals > 0) {
+                    map.put(entry.substring(0, equals).trim(), entry.substring(equals + 1).trim());
+                } else if (!entry.isBlank()) {
+                    throw new IllegalArgumentException("Configuration value " + this.path + key + " must be key=value pairs");
+                }
+            }
+            return map;
         }
 
         boolean bool(String key) {

@@ -71,6 +71,10 @@ Racine : `io.github.wyze3306.jtb`
 
 ## 3. Cycle de vie d'une session
 
+La configuration (`config.yml`) peut être surchargée par variables d'environnement `JTB_<CHEMIN>`
+(`bedrock.address` → `JTB_BEDROCK_ADDRESS`), pratique en conteneur (`Dockerfile`, `docker/`).
+
+
 ```
 Java  : Handshake ─▶ Login (Hello, chiffrement, auth Mojang en mode online) ─▶ LoginFinished
 Proxy : ouvre la connexion Bedrock dès LoginAcknowledged (le client Java reste en CONFIGURATION)
@@ -122,11 +126,14 @@ Les formulaires Bedrock (`ModalFormRequestPacket`) sont rendus nativement avec l
 | Bedrock | Java |
 |---|---|
 | `form` (SimpleForm : boutons) | dialogue `multi_action`, un bouton par bouton Bedrock |
-| `modal` (deux boutons) | dialogue `confirmation` |
+| `modal` (deux boutons) | dialogue `multi_action` à deux boutons (+ bouton de sortie, pour distinguer Échap de « non ») |
 | `custom_form` (label, input, toggle, slider, step_slider, dropdown, header, divider) | dialogue `notice`/`multi_action` avec entrées `text`, `boolean`, `number_range`, `single_option` et un bouton « Envoyer » qui renvoie toutes les valeurs |
 | Fermeture (Échap) | réponse Bedrock annulée (`cancelReason = USER_CLOSED`) |
 
-Les réponses passent par `ServerboundCustomClickActionPacket` (`jtb:form/<id>`).
+Les réponses passent par `ServerboundCustomClickActionPacket` (`jtb:form/<n>`, un numéro par affichage).
+Les formulaires reçus pendant qu'un dialogue est affiché attendent leur tour, comme sur Bedrock ; les
+paramètres du serveur (`ServerSettingsRequest`) sont accessibles depuis le menu pause ; les dialogues de
+PNJ et les écrans pilotés par les données (`ddui`) sont aussi rendus en dialogues.
 
 ## 7. Packs de ressources
 
@@ -137,7 +144,28 @@ puis convertis en **un pack Java 26.3** : textures vanilla remplacées, objets c
 (`.lang` → `.json`), modèles d'entités custom (os → `item_display`). Le pack est servi par un
 serveur HTTP intégré, mis en cache par empreinte SHA‑1 et envoyé pendant la phase de configuration.
 
-## 8. Concurrence et performance
+## 8. Changement de serveur et salle d'attente
+
+`ProxySession#detachBedrock` quitte le serveur Bedrock courant sans perdre le joueur Java : la
+connexion Bedrock est fermée, chaque état qui décrit le monde (`SessionState#survivesServerSwitch`
+faux) est libéré, et le client Java repasse en phase CONFIGURATION (`JavaConfiguration#startServerSwitch`).
+Le `StartGame` du serveur suivant produit un nouveau login Java qui reconstruit le monde.
+
+- **Transfert** (`TransferPacket`, `bedrock.follow-transfers`) : `switchServer(cible)`.
+- **Salle d'attente** (`BedrockReconnect`, `bedrock.reconnect`) : un arrêt propre (raison `SHUTDOWN`
+  ou message d'arrêt connu), une coupure RakNet ou un serveur injoignable laissent le joueur dans
+  l'écran de configuration avec un dialogue ; nouvelle tentative toutes les 5 s jusqu'au délai
+  maximal, puis `onBedrockReady` efface le dialogue. Une expulsion ordinaire déconnecte.
+
+## 9. Skins
+
+| Sens | Mécanisme |
+|---|---|
+| Java → Bedrock | `JavaSkinProvider` : skin et cape Mojang (même UV 64×64), repli sur un skin généré |
+| Bedrock → Java vanilla | `SignedSkins` : Java exige une signature Mojang. Index des pixels envoyés pour les joueurs Java (signature d'origine), MineSkin (clé API), API GeyserMC par XUID ; cache disque `cache/skins` |
+| Bedrock → Java avec mod | `SkinMods` : ViaBedrockUtility / BedrockSkinUtility (canaux détectés par `JavaChannels`) reçoivent l'image, la géométrie custom et la cape |
+
+## 10. Concurrence et performance
 
 - Boucles d'événements Netty partagées ; une boucle par session (pas un thread par joueur).
 - Conversion des chunks et calcul de lumière sur un pool de travail, palettes primitives

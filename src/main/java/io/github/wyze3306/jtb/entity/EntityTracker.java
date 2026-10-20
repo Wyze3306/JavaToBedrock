@@ -55,6 +55,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -249,19 +250,6 @@ public final class EntityTracker implements SessionState {
 
     static UUID derivedUuid(long uniqueId) {
         return new UUID(UUID_MOST_BITS, uniqueId);
-    }
-
-    /**
-     * The name a Java scoreboard uses for the entity with this Bedrock unique id: a player's profile
-     * name, any other entity's UUID; null when unknown.
-     */
-    public @Nullable String scoreboardName(long uniqueId) {
-        PlayerListState.Entry entry = this.playerList.entryByUniqueId(uniqueId);
-        if (entry != null) {
-            return entry.profileName;
-        }
-        TrackedEntity entity = entityByUniqueId(uniqueId);
-        return entity == null ? null : entity.uuid().toString();
     }
 
     /** Another player's game mode changed ({@code UpdatePlayerGameType}): keeps the tab list in step. */
@@ -714,5 +702,33 @@ public final class EntityTracker implements SessionState {
     /** Number of tracked Bedrock entities (the local player included). */
     public int size() {
         return this.entities.size();
+    }
+
+    /**
+     * Java scoreboard holder name of a Bedrock entity, by unique id: the Java profile name of a player
+     * (what the tab list and name tags use), the entity's Java UUID string otherwise. Null when the
+     * entity is unknown. Used by the ui subsystem for {@code SetScore} entries.
+     */
+    public @Nullable String scoreHolder(long uniqueId) {
+        PlayerListState.Entry entry = this.playerList.entryByUniqueId(uniqueId);
+        if (entry != null) {
+            return entry.profileName;
+        }
+        TrackedEntity entity = entityByUniqueId(uniqueId);
+        return entity == null ? null : entity.uuid().toString();
+    }
+
+    /**
+     * Names of the players in the server's player list ({@code PlayerListPacket}), as the Bedrock
+     * server spells them. Used by the chat subsystem for command suggestions.
+     */
+    public Collection<String> playerNames() {
+        List<String> names = new ArrayList<>();
+        for (PlayerListState.Entry entry : this.playerList.entries()) {
+            if (entry.listed) {
+                names.add(entry.name);
+            }
+        }
+        return names;
     }
 }
