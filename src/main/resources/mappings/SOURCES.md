@@ -60,3 +60,22 @@ pack decryption from ViaBedrock (`ResourcePack#decryptContent`, RaphiMC) and the
 conventions of CubeConverter (oryxel1) / Blockbench, with their known bugs fixed (inflation applied
 to one side only, bone mirror/inflate and bone rotations ignored, glyph page FF skipped, attachable
 key mismatch, non lower-cased identifiers).
+
+## entity/ (entity types, entity data indices, hit boxes)
+
+Generator: `tools/gen_entity_mappings.py` (`python3 -I tools/gen_entity_mappings.py [--viabedrock DIR] [--geyser DIR] [--mcpl DIR]`).
+
+| File | Content | Sources |
+|---|---|---|
+| `entities.json` `bedrock_to_java` | Bedrock entity identifier -> Java 26.3 entity type (`null`: vanilla Bedrock entity without Java equivalent, not shown) | ViaBedrock `custom/entity_mappings.json` |
+| `entities.json` `classes` | Java entity data classes (parent, then field names and MCProtocolLib metadata types in index order) | field names: ViaBedrock `java/entity_data_fields.json`; class hierarchy written out in the generator (vanilla 26.3); field types and counts: Geyser `VanillaEntities.java` (each type's field count is checked against Geyser, a mismatch fails the generation) |
+| `entities.json` `java_types` | Java type -> data class, hit box, Bedrock position offset (how far above the Java position Bedrock moves place the entity) | Geyser `VanillaEntities.java` (`width`, `height`, `offset`); `block_display`/`item_display` and the falling block / boat offsets hand-written in the generator (PowerNukkitX values) |
+| `entities.json` `paintings` | Bedrock painting motive -> Java `painting_variant` | ViaBedrock `custom/painting_mappings.json` |
+| `entities.json` `effects` | Bedrock effect id -> Java mob effect | ViaBedrock `bedrock/effects.json`, `custom/effect_mappings.json` |
+| `entities.json` `damage_causes` | Bedrock `ActorDamageCause` (index) -> Java `damage_type` (hurt animation of `ActorEvent HURT`) | ViaBedrock `custom/damage_cause_mappings.json` |
+| `entities.json` `boat_variants` | Bedrock boat `VARIANT` -> Java boat wood | PowerNukkitX boat wood order (hand-written in the generator) |
+
+Pinned inputs: ViaBedrock `c765b78` (GPL-3.0), Geyser `02dbfac` (MIT), MCProtocolLib `b4fa8b2` (26.3, MIT; `EntityType`
+order and metadata type names). Villager professions/types, axolotl variants and the armor stand pose table are
+small hand-written tables in `entity.ActorDataTranslator` (inverse of Geyser's entity setters, MIT); wolf, cat and frog
+variants are resolved at run time by name in the Java registries.

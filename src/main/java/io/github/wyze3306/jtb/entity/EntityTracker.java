@@ -36,10 +36,14 @@ import org.geysermc.mcprotocollib.protocol.data.game.entity.Effect;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.EquipmentSlot;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.attribute.Attribute;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.attribute.AttributeType;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.EntityMetadata;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.Equipment;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.type.EntityType;
+import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.ClientboundDelimiterPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundAddEntityPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundEntityPositionSyncPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundSetEntityDataPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundMoveEntityPosPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundMoveEntityPosRotPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundRemoveEntitiesPacket;
@@ -79,12 +83,11 @@ public final class EntityTracker implements SessionState {
 
     public static final StateKey<EntityTracker> KEY = StateKey.of("entity-tracker", EntityTracker::new);
 
-    /** Relative moves are shorts of 1/4096 block: larger moves are sent as absolute positions. */
-    private static final double MAX_DELTA = Short.MAX_VALUE / 4096.0;
     private static final ClientboundDelimiterPacket BUNDLE_DELIMITER = new ClientboundDelimiterPacket(Unpooled.EMPTY_BUFFER);
     /** Experience orbs of {@code SpawnExperienceOrb} have no Bedrock entity: they are collected after this many ticks. */
     private static final int TEMPORARY_ORB_TICKS = 20;
     private static final long UUID_MOST_BITS = 0x6A74_6265_0000_4000L;
+    private static final EquipmentSlot[] EQUIPMENT_SLOTS = EquipmentSlot.values();
 
     private final ProxySession session;
     private final Long2IntMap javaIds = new Long2IntOpenHashMap();
@@ -364,6 +367,9 @@ public final class EntityTracker implements SessionState {
                 TrackedEntity rider = this.entities.get(passenger);
                 if (rider != null) {
                     rider.vehicle = -1;
+                    if (rider.kind() == TrackedEntity.Kind.LOCAL_PLAYER) {
+                        this.session.get(PlayerState.KEY).onLocalDismount();
+                    }
                 }
             }
         }
@@ -381,6 +387,14 @@ public final class EntityTracker implements SessionState {
      */
     public void onDimensionChange() {
         List<TrackedEntity> all = new ArrayList<>(this.entities.values());
+        for (TrackedEntity entity : all) {
+            // The client dropped every passenger list: nothing to send while forgetting.
+            entity.vehicle = -1;
+            entity.passengers = null;
+        }
+        if (this.local != null) {
+            this.session.get(PlayerState.KEY).onLocalDismount();
+        }
         for (TrackedEntity entity : all) {
             if (entity.kind() != TrackedEntity.Kind.LOCAL_PLAYER) {
                 forget(entity);
@@ -522,6 +536,9 @@ public final class EntityTracker implements SessionState {
             if (previous != null && previous.passengers != null && previous.passengers.rem(rider.runtimeId())) {
                 sendPassengers(previous);
             }
+            if (rider.kind() == TrackedEntity.Kind.LOCAL_PLAYER) {
+                this.session.get(PlayerState.KEY).onLocalDismount();
+            }
             return;
         }
         TrackedEntity vehicle = entityByUniqueId(vehicleUid);
@@ -544,6 +561,9 @@ public final class EntityTracker implements SessionState {
         }
         rider.vehicle = vehicle.runtimeId();
         sendPassengers(vehicle);
+        if (rider.kind() == TrackedEntity.Kind.LOCAL_PLAYER) {
+            this.session.get(PlayerState.KEY).onLocalMount(vehicle.runtimeId(), vehicle.identifier());
+        }
     }
 
     /** Sends the full passenger list of {@code vehicle} (riders in Bedrock seat order). */
@@ -602,8 +622,66 @@ public final class EntityTracker implements SessionState {
     /** Bedrock {@code SADDLED} flag as the Java saddle equipment slot. */
     void sendSaddle(TrackedEntity entity) {
         boolean saddled = entity.flags.contains(ActorFlags.SADDLED);
-        this.session.sendJava(new ClientboundSetEquipmentPacket(entity.javaId(), new Equipment[]{
-                new Equipment(EquipmentSlot.SADDLE, saddled ? EntityItems.saddle(this.session) : null)}));
+        sendEquipment(entity, new Equipment[]{
+                new Equipment(EquipmentSlot.SADDLE, saddled ? EntityItems.saddle(this.session) : null)});
+    }
+
+    /** Sends equipment and remembers it (an entity spawned again gets it back). */
+    void sendEquipment(TrackedEntity entity, Equipment[] equipment) {
+        if (entity.equipment == null) {
+            entity.equipment = new ItemStack[EQUIPMENT_SLOTS.length];
+        }
+        for (Equipment item : equipment) {
+            entity.equipment[item.getSlot().ordinal()] = item.getItem();
+        }
+        this.session.sendJava(new ClientboundSetEquipmentPacket(entity.javaId(), equipment));
+    }
+
+    /**
+     * Spawns a player entity again with the same Java id: Java caches a player's profile (and skin) in
+     * the entity, so a profile updated with signed textures only shows on a new entity. Position,
+     * entity data, equipment, scale and riding are restored from what the client was sent.
+     */
+    void respawnPlayer(TrackedEntity entity) {
+        if (entity.kind() != TrackedEntity.Kind.PLAYER || this.entities.get(entity.runtimeId()) != entity) {
+            return;
+        }
+        EntityMetadata<?, ?>[] metadata = entity.sentMetadata();
+        bundle(() -> {
+            this.session.sendJava(new ClientboundRemoveEntitiesPacket(new int[]{entity.javaId()}));
+            this.session.sendJava(new ClientboundAddEntityPacket(entity.javaId(), entity.uuid(), EntityType.PLAYER,
+                    SpawnTranslators.NO_DATA, entity.x, entity.y, entity.z, Vector3d.ZERO, entity.yaw, entity.headYaw,
+                    entity.pitch));
+            if (metadata != null) {
+                this.session.sendJava(new ClientboundSetEntityDataPacket(entity.javaId(), metadata));
+            }
+            if (entity.equipment != null) {
+                List<Equipment> equipment = new ArrayList<>();
+                for (EquipmentSlot slot : EQUIPMENT_SLOTS) {
+                    ItemStack item = entity.equipment[slot.ordinal()];
+                    if (item != null) {
+                        equipment.add(new Equipment(slot, item));
+                    }
+                }
+                if (!equipment.isEmpty()) {
+                    this.session.sendJava(new ClientboundSetEquipmentPacket(entity.javaId(), equipment.toArray(Equipment[]::new)));
+                }
+            }
+            if (entity.javaScale != 1) {
+                entity.javaScale = 1;
+                sendScale(entity);
+            }
+            if (entity.leashHolder != -1) {
+                sendLeash(entity);
+            }
+        });
+        TrackedEntity vehicle = entity.vehicle == -1 ? null : this.entities.get(entity.vehicle);
+        if (vehicle != null) {
+            sendPassengers(vehicle);
+        }
+        if (entity.passengers != null && !entity.passengers.isEmpty()) {
+            sendPassengers(entity);
+        }
     }
 
     // ------------------------------------------------------------------ effects and temporary entities

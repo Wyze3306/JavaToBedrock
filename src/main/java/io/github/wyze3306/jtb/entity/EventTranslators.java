@@ -97,12 +97,14 @@ final class EventTranslators {
 
     /** Death: health 0 and the dying pose (Java plays the fall-over animation), then the death event (sound). */
     private static void die(ProxySession session, EntityTracker tracker, TrackedEntity entity) {
+        boolean alreadyDead = entity.dead;
         entity.dead = true;
         MetadataWriter writer = tracker.metadata().begin(entity);
         writer.putFloat(MetaField.HEALTH, 0);
         writer.putObject(MetaField.POSE, MetadataTypes.POSE, Pose.DYING);
         writer.flush(session);
-        if (entity.definition().isLiving()) {
+        // A health update to 0 may have come first and played the death already.
+        if (entity.definition().isLiving() && !alreadyDead) {
             event(session, entity.javaId(), EntityEvent.LIVING_DEATH);
         }
     }

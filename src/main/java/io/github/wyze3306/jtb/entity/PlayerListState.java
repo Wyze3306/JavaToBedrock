@@ -3,10 +3,13 @@ package io.github.wyze3306.jtb.entity;
 import io.github.wyze3306.jtb.player.GameModes;
 import io.github.wyze3306.jtb.player.PlayerState;
 import io.github.wyze3306.jtb.session.ProxySession;
+import io.github.wyze3306.jtb.skin.SignedSkins;
+import io.github.wyze3306.jtb.skin.SkinMods;
 import io.github.wyze3306.jtb.text.BedrockText;
 import org.cloudburstmc.protocol.bedrock.data.payload.list.PlayerListAddEntry;
 import org.cloudburstmc.protocol.bedrock.data.payload.list.PlayerListEntry;
 import org.cloudburstmc.protocol.bedrock.data.payload.list.PlayerListRemoveEntry;
+import org.cloudburstmc.protocol.bedrock.data.payload.skin.SerializedSkin;
 import org.cloudburstmc.protocol.bedrock.packet.PlayerListPacket;
 import org.geysermc.mcprotocollib.auth.GameProfile;
 import org.geysermc.mcprotocollib.protocol.data.game.PlayerListEntryAction;
@@ -23,15 +26,21 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * The Java tab list, kept in step with Bedrock's {@code PlayerList}. Every Bedrock player (and every
  * spawned player entity, which Java cannot spawn without a profile) has a Java player info entry:
  * <ul>
  *     <li>remote players use their Bedrock UUID and a profile name that is their Bedrock name cut to
- *     Java's 16 characters; the full, formatted name is the tab display name. Their profile has no
- *     textures: Java only renders Mojang-signed skins, so they show the default skin of their UUID;</li>
+ *     Java's 16 characters; the full, formatted name is the tab display name. Java only renders
+ *     Mojang-signed skins: the profile carries the signed textures {@link SignedSkins} has for the
+ *     Bedrock skin, otherwise it is added without textures (the default skin of the UUID) and, once
+ *     the skin is signed in the background, added again with them, the player entity being spawned
+ *     again so the client picks the new profile up. Clients with a Bedrock skin mod also get the full
+ *     skin ({@link SkinMods});</li>
  *     <li>the local player's entry uses the Java client's own profile (UUID, name and its signed
  *     textures), so the client keeps its own skin.</li>
  * </ul>
@@ -61,6 +70,11 @@ final class PlayerListState {
         GameMode gameMode;
         /** Java entity id of the spawned player entity, or -1. */
         int javaEntityId = -1;
+        @Nullable String xuid;
+        /** Hash of the Bedrock skin ({@link SignedSkins.Skin#hash()}), null when Java cannot draw it. */
+        @Nullable String skinHash;
+        /** Signed textures of the skin, null while unknown. */
+        SignedSkins.@Nullable Textures textures;
 
         Entry(UUID bedrockUuid, UUID javaUuid, boolean local, String profileName, long uniqueId, String name,
               GameMode gameMode) {
@@ -77,6 +91,8 @@ final class PlayerListState {
     private final ProxySession session;
     private final EntityTracker tracker;
     private final Map<UUID, Entry> entries = new HashMap<>();
+    private @Nullable SignedSkins skins;
+    private boolean skinsLookedUp;
 
     PlayerListState(ProxySession session, EntityTracker tracker) {
         this.session = session;
@@ -105,18 +121,30 @@ final class PlayerListState {
         List<org.geysermc.mcprotocollib.protocol.data.game.PlayerListEntry> relisted = null;
         List<org.geysermc.mcprotocollib.protocol.data.game.PlayerListEntry> unlisted = null;
         List<UUID> removed = null;
+        List<Entry> skinned = null;
+        List<Entry> readded = null;
         for (PlayerListEntry raw : packet.getEntries()) {
             if (raw instanceof PlayerListAddEntry add) {
                 Entry entry = this.entries.get(add.getUuid());
                 String name = add.getPlayerName() == null ? "" : add.getPlayerName();
+                SerializedSkin skin = add.getSerializedSkin();
                 if (entry == null) {
                     entry = create(add.getUuid(), add.getActorUniqueID(), name, true);
+                    entry.xuid = add.getXblXUID();
+                    setSkin(entry, skin);
                     (added == null ? added = new ArrayList<>() : added).add(javaEntry(entry, true));
+                    if (skin != null && !entry.local) {
+                        (skinned == null ? skinned = new ArrayList<>() : skinned).add(entry);
+                    }
                 } else {
                     entry.uniqueId = add.getActorUniqueID();
                     entry.name = name;
                     entry.listed = true;
-                    (relisted == null ? relisted = new ArrayList<>() : relisted).add(javaEntry(entry, false));
+                    if (setSkin(entry, skin)) {
+                        (readded == null ? readded = new ArrayList<>() : readded).add(entry);
+                    } else {
+                        (relisted == null ? relisted = new ArrayList<>() : relisted).add(javaEntry(entry, false));
+                    }
                 }
             } else if (raw instanceof PlayerListRemoveEntry remove) {
                 Entry entry = this.entries.get(remove.getUuid());
@@ -138,6 +166,108 @@ final class PlayerListState {
         if (removed != null) {
             this.session.sendJava(new ClientboundPlayerInfoRemovePacket(removed));
         }
+        if (readded != null) {
+            for (Entry entry : readded) {
+                readd(entry);
+            }
+        }
+        if (skinned != null) {
+            for (PlayerListEntry raw : packet.getEntries()) {
+                if (raw instanceof PlayerListAddEntry add && add.getSerializedSkin() != null) {
+                    Entry entry = this.entries.get(add.getUuid());
+                    if (entry != null && skinned.contains(entry)) {
+                        SkinMods.send(this.session, entry.javaUuid, add.getSerializedSkin());
+                    }
+                }
+            }
+        }
+    }
+
+    /** {@code PlayerSkin}: a player changed skin. */
+    void onSkin(UUID bedrockUuid, @Nullable SerializedSkin skin) {
+        Entry entry = this.entries.get(bedrockUuid);
+        if (entry == null || entry.local || skin == null) {
+            return;
+        }
+        if (setSkin(entry, skin)) {
+            readd(entry);
+        }
+        SkinMods.send(this.session, entry.javaUuid, skin);
+    }
+
+    /**
+     * Records the skin of {@code entry} and takes the signed textures known for it; unknown ones are
+     * signed in the background ({@link #onSigned}).
+     *
+     * @return whether the textures of the entry changed
+     */
+    private boolean setSkin(Entry entry, @Nullable SerializedSkin serialized) {
+        if (entry.local) {
+            return false;
+        }
+        SignedSkins.Skin skin = SignedSkins.Skin.of(serialized);
+        String hash = skin == null ? null : skin.hash();
+        if (Objects.equals(hash, entry.skinHash)) {
+            return false;
+        }
+        entry.skinHash = hash;
+        SignedSkins.Textures before = entry.textures;
+        entry.textures = null;
+        SignedSkins skins = skins();
+        if (skin != null && skins != null) {
+            SignedSkins.Textures cached = skins.cached(skin);
+            if (cached != null) {
+                entry.textures = cached;
+            } else {
+                CompletableFuture<SignedSkins.@Nullable Textures> future = skins.resolve(skin, entry.xuid);
+                if (future.isDone()) {
+                    entry.textures = future.getNow(null);
+                } else {
+                    UUID uuid = entry.bedrockUuid;
+                    future.thenAccept(textures -> {
+                        if (textures != null) {
+                            this.session.execute(() -> onSigned(uuid, hash, textures));
+                        }
+                    });
+                }
+            }
+        }
+        return !Objects.equals(before, entry.textures);
+    }
+
+    /** Signed textures arrived (session loop): add the player again with them if it still has that skin. */
+    private void onSigned(UUID bedrockUuid, String hash, SignedSkins.Textures textures) {
+        Entry entry = this.entries.get(bedrockUuid);
+        if (entry == null || !hash.equals(entry.skinHash) || textures.equals(entry.textures)) {
+            return;
+        }
+        entry.textures = textures;
+        readd(entry);
+    }
+
+    /**
+     * Replaces the client's player info of {@code entry} (Java keeps the first profile of a UUID), then
+     * spawns its player entity again, which caches the profile it was created with.
+     */
+    private void readd(Entry entry) {
+        this.session.sendJava(new ClientboundPlayerInfoRemovePacket(List.of(entry.javaUuid)));
+        send(ADD_ACTIONS, List.of(javaEntry(entry, true)));
+        TrackedEntity entity = entry.javaEntityId == -1 ? null : this.tracker.entityByJavaId(entry.javaEntityId);
+        if (entity != null) {
+            this.tracker.respawnPlayer(entity);
+        }
+    }
+
+    private @Nullable SignedSkins skins() {
+        if (!this.skinsLookedUp) {
+            this.skinsLookedUp = true;
+            try {
+                this.skins = this.session.proxy() == null ? null : this.session.proxy().service(SignedSkins.class);
+            } catch (IllegalStateException e) {
+                this.session.logger().debug("[{}] Signed skins unavailable: {}", this.session.getName(), e.getMessage());
+            }
+        }
+        return this.skins;
     }
 
     private void send(EnumSet<PlayerListEntryAction> actions,
@@ -226,6 +356,8 @@ final class PlayerListState {
             profile = new GameProfile(entry.javaUuid, entry.profileName);
             if (entry.local) {
                 profile.setProperties(this.session.getProfile().getProperties());
+            } else if (entry.textures != null) {
+                profile.setProperties(List.of(entry.textures.toProperty()));
             }
         }
         return new org.geysermc.mcprotocollib.protocol.data.game.PlayerListEntry(entry.javaUuid, profile, entry.listed, 0,

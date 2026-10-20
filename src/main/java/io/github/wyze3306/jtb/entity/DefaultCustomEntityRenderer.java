@@ -1,6 +1,9 @@
 package io.github.wyze3306.jtb.entity;
 
+import io.github.wyze3306.jtb.resourcepack.ConversionArtifacts;
+import io.github.wyze3306.jtb.resourcepack.ResourcePackState;
 import io.github.wyze3306.jtb.session.ProxySession;
+import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.cloudburstmc.math.vector.Vector3f;
@@ -13,23 +16,28 @@ import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.IntEnt
 import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.ObjectEntityMetadata;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.type.EntityType;
 import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentTypes;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponents;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundAddEntityPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundSetEntityDataPacket;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
 /**
- * Stand-in for custom entities when no converted model is available: an {@code interaction} entity
- * the size of the Bedrock hit box (so Java players can hit and use it, with the hit box outline shown
- * when aimed at), a translucent box ({@code item_display} of a stained glass block scaled to the hit
- * box) and a label ({@code text_display}) with the entity's name tag or, without one, its identifier.
+ * Custom entities as an {@code interaction} entity the size of the Bedrock hit box (so Java players
+ * can hit and use it, with the hit box outline shown when aimed at), a body ({@code item_display})
+ * and a label ({@code text_display}) with the entity's name tag.
  * <p>
- * Subclasses can draw a real model by overriding {@link #modelItem} (e.g. a paper item whose
- * {@code item_model} points to a converted model of the resource pack).
+ * The body is the model the resource pack subsystem converted for the entity when the client loaded
+ * the converted pack ({@link ConversionArtifacts#entityModel}: paper with that {@code item_model},
+ * scaled and lifted as the model says). Without one it is a translucent box (a stained glass block
+ * scaled to the hit box) and the label shows the identifier when the entity has no name tag.
+ * Subclasses can draw something else by overriding {@link #modelItem}.
  */
 public class DefaultCustomEntityRenderer implements CustomEntityRenderer {
 
@@ -39,9 +47,10 @@ public class DefaultCustomEntityRenderer implements CustomEntityRenderer {
     private static final String PLACEHOLDER_ITEM = "minecraft:light_gray_stained_glass";
     private static final int TEXT_DISPLAY_BILLBOARD_CENTER = 3;
     private static final int ITEM_DISPLAY_CONTEXT_NONE = 0;
+    private static final int DEFAULT_TEXT_BACKGROUND = 0x40000000;
 
     /** What was spawned for one entity. */
-    protected record State(int modelId, int labelId, float width, float height, Component label) {
+    protected record State(int modelId, int labelId, float width, float height, float scale, Component label) {
     }
 
     @Override
@@ -60,7 +69,7 @@ public class DefaultCustomEntityRenderer implements CustomEntityRenderer {
         session.sendJava(new ClientboundAddEntityPacket(labelId, partUuid(entity, 2), EntityType.TEXT_DISPLAY,
                 entity.x(), entity.y(), entity.z(), 0, 0, 0));
         session.sendJava(new ClientboundSetEntityDataPacket(labelId, labelData(entity, height, label)));
-        entity.setRendererState(new State(modelId, labelId, width, height, label));
+        entity.setRendererState(new State(modelId, labelId, width, height, entity.scale(), label));
     }
 
     @Override
@@ -71,22 +80,40 @@ public class DefaultCustomEntityRenderer implements CustomEntityRenderer {
         float width = width(entity);
         float height = height(entity);
         Component label = label(session, entity);
-        if (width != state.width() || height != state.height()) {
+        boolean resized = width != state.width() || height != state.height() || entity.scale() != state.scale();
+        if (resized) {
             session.sendJava(new ClientboundSetEntityDataPacket(entity.javaId(), interactionData(entity, width, height)));
             session.sendJava(new ClientboundSetEntityDataPacket(state.modelId(), modelData(session, entity, width, height)));
         }
-        if (width != state.width() || height != state.height() || !label.equals(state.label())) {
+        if (resized || !label.equals(state.label())) {
             session.sendJava(new ClientboundSetEntityDataPacket(state.labelId(), labelData(entity, height, label)));
         }
-        entity.setRendererState(new State(state.modelId(), state.labelId(), width, height, label));
+        entity.setRendererState(new State(state.modelId(), state.labelId(), width, height, entity.scale(), label));
     }
 
     /**
-     * The item shown as the entity's body, scaled to its hit box; null for none. The default is a
-     * translucent block marking the hit box.
+     * The item shown as the entity's body: the converted model, or a translucent block marking the
+     * hit box; null for none.
      */
     protected @Nullable ItemStack modelItem(ProxySession session, TrackedEntity entity) {
-        return EntityItems.javaItem(session, PLACEHOLDER_ITEM, null);
+        ConversionArtifacts.Variant model = convertedModel(session, entity);
+        if (model == null) {
+            return EntityItems.javaItem(session, PLACEHOLDER_ITEM, null);
+        }
+        ItemStack paper = EntityItems.javaItem(session, "minecraft:paper", null);
+        if (paper == null) {
+            return null;
+        }
+        DataComponents components = new DataComponents(new HashMap<>());
+        components.put(DataComponentTypes.ITEM_MODEL, Key.key(model.itemModel()));
+        return new ItemStack(paper.getId(), 1, components);
+    }
+
+    /** The default model of the entity in the converted pack the client loaded, or null. */
+    protected static ConversionArtifacts.@Nullable Variant convertedModel(ProxySession session, TrackedEntity entity) {
+        ConversionArtifacts artifacts = session.get(ResourcePackState.KEY).artifacts();
+        ConversionArtifacts.EntityModel model = artifacts == null ? null : artifacts.entityModel(entity.identifier());
+        return model == null ? null : model.defaultModel();
     }
 
     /** Hit box width in blocks (Bedrock size times scale). */
@@ -98,10 +125,16 @@ public class DefaultCustomEntityRenderer implements CustomEntityRenderer {
         return Math.max(MIN_SIZE, entity.bedrockHeight() * Math.max(entity.scale(), 0));
     }
 
-    /** The Bedrock name tag, or the identifier made readable ({@code mypack:fire_golem} -> "Fire Golem"). */
+    /**
+     * The Bedrock name tag; without one, nothing for an entity with a converted model, otherwise the
+     * identifier made readable ({@code mypack:fire_golem} -> "Fire Golem").
+     */
     protected static Component label(ProxySession session, TrackedEntity entity) {
         if (!entity.nameTag().isEmpty()) {
             return ActorDataTranslator.nameComponent(session, entity);
+        }
+        if (convertedModel(session, entity) != null) {
+            return Component.empty();
         }
         String id = entity.identifier();
         String path = id.substring(id.indexOf(':') + 1);
@@ -137,9 +170,21 @@ public class DefaultCustomEntityRenderer implements CustomEntityRenderer {
             data.add(new ObjectEntityMetadata<>(display.index(MetaField.ITEM_STACK), MetadataTypes.ITEM_STACK, item));
         }
         data.add(new ByteEntityMetadata(display.index(MetaField.ITEM_DISPLAY), MetadataTypes.BYTE, (byte) ITEM_DISPLAY_CONTEXT_NONE));
-        data.add(new ObjectEntityMetadata<>(display.index(MetaField.SCALE), MetadataTypes.VECTOR3, Vector3f.from(width, height, width)));
-        // An item display is drawn centred on its position: lift it so the box stands on the ground.
-        data.add(new ObjectEntityMetadata<>(display.index(MetaField.TRANSLATION), MetadataTypes.VECTOR3, Vector3f.from(0, height / 2, 0)));
+        ConversionArtifacts.Variant model = convertedModel(session, entity);
+        Vector3f scale;
+        Vector3f translation;
+        if (model != null) {
+            float entityScale = Math.max(entity.scale(), 0);
+            float s = model.scale() * entityScale;
+            scale = Vector3f.from(s, s, s);
+            translation = Vector3f.from(0, model.translationY() * entityScale, 0);
+        } else {
+            scale = Vector3f.from(width, height, width);
+            // An item display is drawn centred on its position: lift it so the box stands on the ground.
+            translation = Vector3f.from(0, height / 2, 0);
+        }
+        data.add(new ObjectEntityMetadata<>(display.index(MetaField.SCALE), MetadataTypes.VECTOR3, scale));
+        data.add(new ObjectEntityMetadata<>(display.index(MetaField.TRANSLATION), MetadataTypes.VECTOR3, translation));
         data.add(new IntEntityMetadata(display.index(MetaField.POS_ROT_INTERPOLATION_DURATION), MetadataTypes.INT, 3));
         return data.toArray(new EntityMetadata<?, ?>[0]);
     }
@@ -151,6 +196,8 @@ public class DefaultCustomEntityRenderer implements CustomEntityRenderer {
                 new ByteEntityMetadata(display.index(MetaField.BILLBOARD_RENDER_CONSTRAINTS), MetadataTypes.BYTE,
                         (byte) TEXT_DISPLAY_BILLBOARD_CENTER),
                 new ObjectEntityMetadata<>(display.index(MetaField.TRANSLATION), MetadataTypes.VECTOR3, Vector3f.from(0, height + 0.3f, 0)),
+                new IntEntityMetadata(display.index(MetaField.BACKGROUND_COLOR), MetadataTypes.INT,
+                        Component.empty().equals(label) ? 0 : DEFAULT_TEXT_BACKGROUND),
                 new IntEntityMetadata(display.index(MetaField.POS_ROT_INTERPOLATION_DURATION), MetadataTypes.INT, 3)};
     }
 }

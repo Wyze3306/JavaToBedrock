@@ -48,7 +48,7 @@ final class MetadataWriter {
 
     void putByte(MetaField field, int value) {
         int index = this.definition.index(field);
-        if (index >= 0 && this.entity.updateValue(index, (byte) value)) {
+        if (index >= 0 && this.entity.updateValue(index, MetadataTypes.BYTE, (byte) value)) {
             this.pending.add(new ByteEntityMetadata(index, MetadataTypes.BYTE, (byte) value));
         }
     }
@@ -59,28 +59,28 @@ final class MetadataWriter {
 
     void putInt(MetaField field, IntMetadataType type, int value) {
         int index = this.definition.index(field);
-        if (index >= 0 && this.entity.updateValue(index, value)) {
+        if (index >= 0 && this.entity.updateValue(index, type, value)) {
             this.pending.add(new IntEntityMetadata(index, type, value));
         }
     }
 
     void putLong(MetaField field, long value) {
         int index = this.definition.index(field);
-        if (index >= 0 && this.entity.updateValue(index, value)) {
+        if (index >= 0 && this.entity.updateValue(index, MetadataTypes.LONG, value)) {
             this.pending.add(new LongEntityMetadata(index, MetadataTypes.LONG, value));
         }
     }
 
     void putFloat(MetaField field, float value) {
         int index = this.definition.index(field);
-        if (index >= 0 && this.entity.updateValue(index, Float.floatToIntBits(value))) {
+        if (index >= 0 && this.entity.updateValue(index, MetadataTypes.FLOAT, Float.floatToIntBits(value))) {
             this.pending.add(new FloatEntityMetadata(index, MetadataTypes.FLOAT, value));
         }
     }
 
     void putBoolean(MetaField field, boolean value) {
         int index = this.definition.index(field);
-        if (index >= 0 && this.entity.updateValue(index, value ? 1 : 0)) {
+        if (index >= 0 && this.entity.updateValue(index, MetadataTypes.BOOLEAN, value ? 1 : 0)) {
             this.pending.add(new BooleanEntityMetadata(index, MetadataTypes.BOOLEAN, value));
         }
     }
@@ -88,7 +88,7 @@ final class MetadataWriter {
     /** Object-valued field; {@code value} is compared with {@code equals}, so pass cached instances where possible. */
     <T> void putObject(MetaField field, MetadataType<T> type, T value) {
         int index = this.definition.index(field);
-        if (index >= 0 && this.entity.updateObject(index, value)) {
+        if (index >= 0 && this.entity.updateObject(index, type, value)) {
             this.pending.add(new ObjectEntityMetadata<>(index, type, value));
         }
     }

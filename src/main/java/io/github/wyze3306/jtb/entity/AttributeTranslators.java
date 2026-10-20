@@ -6,9 +6,11 @@ import org.cloudburstmc.protocol.bedrock.data.payload.attribute.AttributeData;
 import org.cloudburstmc.protocol.bedrock.packet.MobEffectPacket;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.Effect;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.EntityEvent;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.attribute.Attribute;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.attribute.AttributeType;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.MetadataTypes;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundEntityEventPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundRemoveMobEffectPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundUpdateAttributesPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundUpdateMobEffectPacket;
@@ -47,6 +49,7 @@ final class AttributeTranslators {
             return;
         }
         List<Attribute> java = null;
+        boolean died = false;
         MetadataWriter writer = tracker.metadata().begin(entity);
         for (AttributeData attribute : attributes) {
             String name = attribute.getAttributeName();
@@ -64,6 +67,7 @@ final class AttributeTranslators {
                     writer.putFloat(MetaField.HEALTH, value);
                     if ((value <= 0) != entity.dead) {
                         entity.dead = value <= 0;
+                        died = entity.dead;
                         writer.putObject(MetaField.POSE, MetadataTypes.POSE, ActorDataTranslator.pose(entity));
                     }
                 }
@@ -84,6 +88,10 @@ final class AttributeTranslators {
         writer.flush(session);
         if (java != null) {
             session.sendJava(new ClientboundUpdateAttributesPacket(entity.javaId(), java));
+        }
+        if (died) {
+            // PowerNukkitX's /kill only zeroes the health (no ActorEvent DEATH): the death sound still plays.
+            session.sendJava(new ClientboundEntityEventPacket(entity.javaId(), EntityEvent.LIVING_DEATH));
         }
     }
 

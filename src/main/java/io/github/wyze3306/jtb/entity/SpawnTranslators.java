@@ -41,7 +41,6 @@ import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundAddEntityPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundEntityEventPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundSetEntityDataPacket;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundSetEquipmentPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundTakeItemEntityPacket;
 import org.jspecify.annotations.Nullable;
 
@@ -59,7 +58,7 @@ import java.util.UUID;
 final class SpawnTranslators {
 
     private static final float PAINTING_WALL_OFFSET = 0.46875f;
-    private static final GenericObjectData NO_DATA = new GenericObjectData(0);
+    static final GenericObjectData NO_DATA = new GenericObjectData(0);
     private static final Direction[] PAINTING_FACING = {Direction.SOUTH, Direction.WEST, Direction.NORTH, Direction.EAST};
     private static final byte ALL_SKIN_PARTS = 0x7F;
 
@@ -246,8 +245,7 @@ final class SpawnTranslators {
                     entity.x, entity.y, entity.z, velocity, entity.yaw, entity.headYaw, entity.pitch));
             sendInitialData(session, tracker, entity, packet.getActorData(), packet.getSyncedProperties(), null);
             if (held != null) {
-                session.sendJava(new ClientboundSetEquipmentPacket(entity.javaId(),
-                        new Equipment[]{new Equipment(EquipmentSlot.MAIN_HAND, held)}));
+                tracker.sendEquipment(entity, new Equipment[]{new Equipment(EquipmentSlot.MAIN_HAND, held)});
             }
         });
         tracker.nametags().update(entity);

@@ -73,9 +73,11 @@ public final class EntityModule implements TranslatorModule {
         registry.bedrock(MobEquipmentPacket.class, EquipmentTranslators::mobEquipment);
         registry.bedrock(MobArmorEquipmentPacket.class, EquipmentTranslators::mobArmorEquipment);
 
-        // Nothing a vanilla Java client can show: Bedrock skins (Java renders only Mojang-signed ones),
-        // emote piece lists, and volume entities (client-side fog/trigger volumes).
-        registry.bedrock(PlayerSkinPacket.class, (session, packet) -> { });
+        // Skin changes: signed textures for vanilla clients, the full skin for skin mods.
+        registry.bedrock(PlayerSkinPacket.class, (session, packet) ->
+                session.get(EntityTracker.KEY).playerList().onSkin(packet.getUuid(), packet.getSerializedSkin()));
+        // Nothing a Java client can show: emote piece lists and volume entities (client-side fog and
+        // trigger volumes).
         registry.bedrock(EmoteListPacket.class, (session, packet) -> { });
         registry.bedrock(AddVolumeEntityPacket.class, (session, packet) -> { });
         registry.bedrock(RemoveVolumeEntityPacket.class, (session, packet) -> { });

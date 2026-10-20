@@ -8,7 +8,6 @@ import org.cloudburstmc.protocol.bedrock.packet.MobEquipmentPacket;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.EquipmentSlot;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.Equipment;
 import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundSetEquipmentPacket;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -51,8 +50,7 @@ final class EquipmentTranslators {
         } else {
             entity.offHandItem = identifier;
         }
-        session.sendJava(new ClientboundSetEquipmentPacket(entity.javaId(),
-                new Equipment[]{new Equipment(slot, javaItem(session, item))}));
+        tracker.sendEquipment(entity, new Equipment[]{new Equipment(slot, javaItem(session, item))});
     }
 
     static void mobArmorEquipment(ProxySession session, MobArmorEquipmentPacket packet) {
@@ -61,12 +59,12 @@ final class EquipmentTranslators {
         if (entity == null || entity.kind() == TrackedEntity.Kind.LOCAL_PLAYER || !entity.definition().isLiving()) {
             return;
         }
-        session.sendJava(new ClientboundSetEquipmentPacket(entity.javaId(), new Equipment[]{
+        tracker.sendEquipment(entity, new Equipment[]{
                 new Equipment(EquipmentSlot.HELMET, javaItem(session, packet.getHead())),
                 new Equipment(EquipmentSlot.CHESTPLATE, javaItem(session, packet.getTorso())),
                 new Equipment(EquipmentSlot.LEGGINGS, javaItem(session, packet.getLegs())),
                 new Equipment(EquipmentSlot.BOOTS, javaItem(session, packet.getFeet())),
-                new Equipment(EquipmentSlot.BODY, javaItem(session, packet.getBody()))}));
+                new Equipment(EquipmentSlot.BODY, javaItem(session, packet.getBody()))});
     }
 
     private static @Nullable ItemStack javaItem(ProxySession session, @Nullable ItemData item) {
