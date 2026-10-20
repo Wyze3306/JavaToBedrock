@@ -1,5 +1,7 @@
 package io.github.wyze3306.jtb.mapping;
 
+import io.github.wyze3306.jtb.block.BlockData;
+import io.github.wyze3306.jtb.world.BiomeMappings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,6 +22,8 @@ public final class MappingData {
         }
         long start = System.nanoTime();
         JavaRegistries.load();
+        BlockData.load();
+        BiomeMappings.load();
         loaded = true;
         LOGGER.info("Mappings loaded in {} ms", (System.nanoTime() - start) / 1_000_000);
     }
