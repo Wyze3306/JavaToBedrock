@@ -94,14 +94,8 @@ final class MovementTranslators {
     static void playerCommand(ProxySession session, ServerboundPlayerCommandPacket packet) {
         PlayerState player = session.get(PlayerState.KEY);
         switch (packet.getState()) {
-            case START_SPRINTING -> {
-                player.input().setSprinting(true);
-                player.stats().onJavaSprint();
-            }
-            case STOP_SPRINTING -> {
-                player.input().setSprinting(false);
-                player.stats().onJavaSprint();
-            }
+            case START_SPRINTING -> player.input().setSprinting(true);
+            case STOP_SPRINTING -> player.input().setSprinting(false);
             case START_ELYTRA_FLYING -> player.input().startGliding();
             case LEAVE_BED -> {
                 PlayerActionPacket action = new PlayerActionPacket();

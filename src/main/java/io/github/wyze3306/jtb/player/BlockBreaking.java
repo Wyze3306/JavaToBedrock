@@ -17,6 +17,7 @@ import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.protocol.bedrock.data.LevelEvent;
 import org.cloudburstmc.protocol.bedrock.data.LevelEventType;
 import org.cloudburstmc.protocol.bedrock.data.PlayerActionType;
+import org.cloudburstmc.protocol.bedrock.data.PlayerBlockActionData;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.player.BlockBreakStage;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.player.GameMode;
@@ -58,7 +59,9 @@ public final class BlockBreaking implements SessionState {
     private final ProxySession session;
     private boolean digging;
     private boolean startedThisTick;
-    private int digX, digY, digZ, digFace;
+    private Vector3i digPosition = Vector3i.ZERO;
+    /** The {@code CONTINUE_DESTROY_BLOCK} sent every tick while digging, built once per block. */
+    private PlayerBlockActionData continueAction;
     private final Long2ObjectMap<Crack> cracks = new Long2ObjectOpenHashMap<>();
 
     private BlockBreaking(ProxySession session) {
@@ -68,64 +71,59 @@ public final class BlockBreaking implements SessionState {
     // ------------------------------------------------------------------ local digging
 
     /**
-     * Java {@code PlayerAction} START/CANCEL/FINISH/CHANGE_DIGGING_DIRECTION.
-     *
-     * @return false when breaking is not allowed (the caller resyncs the block)
+     * Java {@code PlayerAction} START/CANCEL/FINISH/CHANGE_DIGGING_DIRECTION. When breaking is not
+     * allowed (no {@code MINE} ability, immutable world) the client's predicted break is undone.
      */
-    boolean onDig(PlayerAction action, Vector3i position, Direction direction) {
+    void onDig(PlayerAction action, Vector3i position, Direction direction) {
         PlayerState player = this.session.get(PlayerState.KEY);
         AuthInputBuilder input = player.input();
-        int x = position.getX(), y = position.getY(), z = position.getZ();
         int face = direction.ordinal();
         switch (action) {
             case START_DIGGING -> {
                 if (!player.abilities().canMine()) {
                     resync(position);
-                    return false;
+                    return;
                 }
-                input.addBlockAction(PlayerActionType.START_DESTROY_BLOCK, x, y, z, face);
-                if (player.javaGameMode() == GameMode.CREATIVE || InstantBreak.isInstant(this.session.get(WorldState.KEY).javaBlockAt(x, y, z))) {
-                    input.addBlockAction(PlayerActionType.PREDICT_DESTROY_BLOCK, x, y, z, face);
+                input.addBlockAction(AuthInputBuilder.blockAction(PlayerActionType.START_DESTROY_BLOCK, position, face));
+                int javaState = this.session.get(WorldState.KEY).javaBlockAt(position.getX(), position.getY(), position.getZ());
+                if (player.javaGameMode() == GameMode.CREATIVE || InstantBreak.isInstant(javaState)) {
+                    input.addBlockAction(AuthInputBuilder.blockAction(PlayerActionType.PREDICT_DESTROY_BLOCK, position, face));
                     this.digging = false;
                 } else {
                     this.digging = true;
                     this.startedThisTick = true;
-                    this.digX = x;
-                    this.digY = y;
-                    this.digZ = z;
-                    this.digFace = face;
+                    this.digPosition = position;
+                    this.continueAction = AuthInputBuilder.blockAction(PlayerActionType.CONTINUE_DESTROY_BLOCK, position, face);
                 }
             }
             case CANCEL_DIGGING -> {
-                input.addBlockAction(PlayerActionType.ABORT_DESTROY_BLOCK, x, y, z, face);
+                input.addBlockAction(AuthInputBuilder.blockAction(PlayerActionType.ABORT_DESTROY_BLOCK, position, face));
                 this.digging = false;
             }
             case FINISH_DIGGING -> {
+                this.digging = false;
                 if (!player.abilities().canMine()) {
                     resync(position);
-                    this.digging = false;
-                    return false;
+                    return;
                 }
-                input.addBlockAction(PlayerActionType.CONTINUE_DESTROY_BLOCK, x, y, z, face);
-                input.addBlockAction(PlayerActionType.PREDICT_DESTROY_BLOCK, x, y, z, face);
-                input.addBlockAction(PlayerActionType.ABORT_DESTROY_BLOCK, x, y, z, 0);
-                this.digging = false;
+                input.addBlockAction(AuthInputBuilder.blockAction(PlayerActionType.CONTINUE_DESTROY_BLOCK, position, face));
+                input.addBlockAction(AuthInputBuilder.blockAction(PlayerActionType.PREDICT_DESTROY_BLOCK, position, face));
+                input.addBlockAction(AuthInputBuilder.blockAction(PlayerActionType.ABORT_DESTROY_BLOCK, position, 0));
             }
             case CHANGE_DIGGING_DIRECTION -> {
-                input.addBlockAction(PlayerActionType.CONTINUE_DESTROY_BLOCK, x, y, z, face);
-                this.digFace = face;
+                this.continueAction = AuthInputBuilder.blockAction(PlayerActionType.CONTINUE_DESTROY_BLOCK, position, face);
+                input.addBlockAction(this.continueAction);
                 this.startedThisTick = true;
             }
             default -> {
             }
         }
-        return true;
     }
 
     /** Right before each auth input: the per-tick {@code CONTINUE_DESTROY_BLOCK} while digging. */
     void beforeInput(AuthInputBuilder input) {
         if (this.digging && !this.startedThisTick) {
-            input.addBlockAction(PlayerActionType.CONTINUE_DESTROY_BLOCK, this.digX, this.digY, this.digZ, this.digFace);
+            input.addBlockAction(this.continueAction);
         }
         this.startedThisTick = false;
     }
@@ -162,7 +160,7 @@ public final class BlockBreaking implements SessionState {
         int x = (int) Math.floor(position.getX());
         int y = (int) Math.floor(position.getY());
         int z = (int) Math.floor(position.getZ());
-        if (this.digging && x == this.digX && y == this.digY && z == this.digZ) {
+        if (this.digging && x == this.digPosition.getX() && y == this.digPosition.getY() && z == this.digPosition.getZ()) {
             // The Java client draws its own cracks.
             return true;
         }

@@ -27,9 +27,10 @@ import java.util.Set;
  * {@code *_PRESSED_RAW}/{@code *_RELEASED_RAW}) are derived by comparing with the previous tick, so
  * {@link #build()} must be called exactly once per emulated tick.
  * <p>
- * Allocation: apart from the packet itself (the protocol library encodes it asynchronously, so it can
- * not be reused), the steady state allocates nothing: immutable vectors are cached until their value
- * changes and move vectors come from a precomputed table. Not thread-safe: session loop only.
+ * Allocation: the packet itself is new every tick (the protocol library encodes it asynchronously, so
+ * it can not be reused); everything else is cached: immutable vectors until their value changes, move
+ * vectors in a precomputed table, the resting velocity as a constant. Not thread-safe: session loop
+ * only.
  */
 final class AuthInputBuilder {
 
@@ -222,13 +223,21 @@ final class AuthInputBuilder {
         this.pending.add(PlayerAuthInputData.START_USING_ITEM);
     }
 
-    /** Adds a block action ({@code playerBlockActions}) to the next packet. */
-    void addBlockAction(PlayerActionType type, int x, int y, int z, int face) {
+    /**
+     * Adds a block action ({@code playerBlockActions}) to the next packet. The action is only read when
+     * the packet is encoded, so one that is never modified again may be added to several packets (the
+     * per-tick continue-digging action).
+     */
+    void addBlockAction(PlayerBlockActionData action) {
+        this.blockActions.add(action);
+    }
+
+    static PlayerBlockActionData blockAction(PlayerActionType type, Vector3i position, int face) {
         PlayerBlockActionData action = new PlayerBlockActionData();
         action.setPlayerActionType(type);
-        action.setBlockPosition(Vector3i.from(x, y, z));
+        action.setBlockPosition(position);
         action.setFacing(face);
-        this.blockActions.add(action);
+        return action;
     }
 
     /** The player now rides {@code runtimeId}; boats are simulated by the client ("client predicted"). */
@@ -443,6 +452,9 @@ final class AuthInputBuilder {
             }
             packet.setVehicleRotation(this.vehicleRotation);
             packet.setClientPredictedVehicle(this.vehicleRuntimeId);
+        } else if (riding && this.hasVehiclePosition) {
+            // Mounts the server moves from the inputs: the Java client only reports the mount's position.
+            packet.setPosition(Vector3f.from(this.vehicleX, this.vehicleY + EYE_HEIGHT, this.vehicleZ));
         } else {
             packet.setPosition(eyePosition());
         }

@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * to the server's ops.txt), flies, breaks and uses a block, goes back to survival, falls to death and
  * respawns.
  * <p>
- * Needs ~40 s. Checks that rely on other subsystems (attributes, experience) are only reported.
+ * Run it for 30 s. Checks that rely on other subsystems (attributes, experience) are only reported.
  */
 public final class PlayerScenario implements E2eScenario {
 

@@ -41,7 +41,9 @@ import java.util.Optional;
  * (x1.3 while the server thinks the player sprints) and the speed/slowness effects. The Java client
  * applies its own sprint modifier ({@code minecraft:sprinting}, +30 % of the total), so the Java base
  * value is the Bedrock value without the sprint boost, and every sync carries the sprint modifier
- * while the Java player sprints (a sync replaces all modifiers client-side). Input locks
+ * while the Java player sprints (a sync replaces all modifiers client-side). Whether a Bedrock value
+ * includes the boost comes from the server's {@code SPRINTING} actor flag (PowerNukkitX sends it before
+ * the new speed), or from the proxy's own sprint state until actor data was seen. Input locks
  * ({@code UpdateClientInputLocks}) become -100 % modifiers on movement speed and jump strength.
  */
 final class LocalStats {
@@ -81,10 +83,6 @@ final class LocalStats {
     LocalStats(ProxySession session, PlayerState player) {
         this.session = session;
         this.player = player;
-    }
-
-    float health() {
-        return this.health;
     }
 
     // ------------------------------------------------------------------ attributes
@@ -194,17 +192,6 @@ final class LocalStats {
                 new Attribute(AttributeType.Builtin.KNOCKBACK_RESISTANCE, this.knockbackResistance),
                 new Attribute(AttributeType.Builtin.LUCK, this.luck),
                 new Attribute(AttributeType.Builtin.ATTACK_SPEED, NO_ATTACK_COOLDOWN))));
-    }
-
-    /**
-     * The Java player started/stopped sprinting: resync so the sprint modifier matches. Whether the
-     * Bedrock value includes the boost comes from the server's SPRINTING flag (PowerNukkitX sends it
-     * before the new speed), or from the proxy's own state when no actor data was seen yet.
-     */
-    void onJavaSprint() {
-        if (this.player.isSpawned()) {
-            sendAttributes();
-        }
     }
 
     /** Input locks from {@code UpdateClientInputLocks}. */

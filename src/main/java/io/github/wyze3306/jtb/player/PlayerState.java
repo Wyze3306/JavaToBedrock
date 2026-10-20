@@ -106,7 +106,7 @@ public final class PlayerState implements SessionState {
     private long runtimeId;
     private long uniqueId;
     private int javaEntityId = 1;
-    private Vector3f position = Vector3f.ZERO;
+    private @Nullable Vector3f position;
     private GameType gameType = GameType.SURVIVAL;
     private GameType worldGameType = GameType.SURVIVAL;
     private long hashedSeed;
@@ -117,7 +117,7 @@ public final class PlayerState implements SessionState {
     private boolean showingCredits;
     private boolean immediateRespawn;
     private boolean changingDimension;
-    private @Nullable Vector3i deathPosition;
+    private @Nullable GlobalPos deathPosition;
     private int operatorLevel = -1;
     private boolean dismountLocked;
 
@@ -174,7 +174,12 @@ public final class PlayerState implements SessionState {
 
     /** Feet position (Java convention). */
     public Vector3f position() {
-        return this.position;
+        Vector3f position = this.position;
+        if (position == null) {
+            position = Vector3f.from(this.input.x(), this.input.y(), this.input.z());
+            this.position = position;
+        }
+        return position;
     }
 
     /** Yaw in {@code [-180, 180)}. */
@@ -236,8 +241,9 @@ public final class PlayerState implements SessionState {
         return this.rewindHistorySize;
     }
 
+    /** The position changed: {@link #position()} is rebuilt on its next call only. */
     private void updatePosition() {
-        this.position = Vector3f.from(this.input.x(), this.input.y(), this.input.z());
+        this.position = null;
     }
 
     // ------------------------------------------------------------------ teleports
@@ -345,10 +351,10 @@ public final class PlayerState implements SessionState {
         }
         long now = System.nanoTime();
         if (this.inputTokens < INPUT_BURST) {
-            long elapsed = now - this.tokenTimeNanos;
-            if (elapsed >= TICK_NANOS) {
-                this.inputTokens = (int) Math.min(INPUT_BURST, this.inputTokens + elapsed / TICK_NANOS);
-                this.tokenTimeNanos = now;
+            long refill = (now - this.tokenTimeNanos) / TICK_NANOS;
+            if (refill > 0) {
+                this.inputTokens = (int) Math.min(INPUT_BURST, this.inputTokens + refill);
+                this.tokenTimeNanos += refill * TICK_NANOS;
             }
         }
         if (this.inputTokens == 0) {
@@ -503,7 +509,8 @@ public final class PlayerState implements SessionState {
         if (first) {
             this.dead = true;
             this.respawnRequested = false;
-            this.deathPosition = Vector3i.from(Math.floor(this.input.x()), Math.floor(this.input.y()), Math.floor(this.input.z()));
+            this.deathPosition = new GlobalPos(JavaDimensions.key(this.session.get(WorldState.KEY).dimension()),
+                    Vector3i.from(Math.floor(this.input.x()), Math.floor(this.input.y()), Math.floor(this.input.z())));
             this.session.get(BlockBreaking.KEY).reset();
             this.interactions.reset();
         }
@@ -560,9 +567,8 @@ public final class PlayerState implements SessionState {
         this.session.sendBedrock(action);
 
         int dimension = this.session.get(WorldState.KEY).dimension();
-        GlobalPos lastDeath = this.deathPosition == null ? null : new GlobalPos(JavaDimensions.key(dimension), this.deathPosition);
         this.session.sendJava(new ClientboundRespawnPacket(new PlayerSpawnInfo(JavaDimensions.typeId(dimension),
-                JavaDimensions.key(dimension), this.hashedSeed, javaGameMode(), null, false, false, lastDeath, 0, 63),
+                JavaDimensions.key(dimension), this.hashedSeed, javaGameMode(), null, false, false, this.deathPosition, 0, 63),
                 false, false));
         this.input.reset();
         this.operatorLevel = -1;

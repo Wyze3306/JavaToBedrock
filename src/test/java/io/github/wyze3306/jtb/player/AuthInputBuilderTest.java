@@ -4,6 +4,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import org.cloudburstmc.math.vector.Vector2f;
 import org.cloudburstmc.math.vector.Vector3f;
+import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.protocol.bedrock.codec.BedrockCodec;
 import org.cloudburstmc.protocol.bedrock.codec.BedrockCodecHelper;
 import org.cloudburstmc.protocol.bedrock.codec.v2192.Bedrock_v2192;
@@ -149,8 +150,8 @@ class AuthInputBuilderTest {
         AuthInputBuilder input = standingAt(0, 64, 0);
         input.handledTeleport();
         input.missedSwing();
-        input.addBlockAction(PlayerActionType.START_DESTROY_BLOCK, 1, 63, 2, 1);
-        input.addBlockAction(PlayerActionType.PREDICT_DESTROY_BLOCK, 1, 63, 2, 1);
+        input.addBlockAction(AuthInputBuilder.blockAction(PlayerActionType.START_DESTROY_BLOCK, Vector3i.from(1, 63, 2), 1));
+        input.addBlockAction(AuthInputBuilder.blockAction(PlayerActionType.PREDICT_DESTROY_BLOCK, Vector3i.from(1, 63, 2), 1));
         PlayerAuthInputPacket packet = input.build();
         assertTrue(packet.getInputData().containsAll(EnumSet.of(HANDLE_TELEPORT, MISSED_SWING, PERFORM_BLOCK_ACTIONS)));
         assertEquals(2, packet.getPlayerBlockActions().size());

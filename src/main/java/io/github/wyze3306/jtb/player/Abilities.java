@@ -33,7 +33,6 @@ final class Abilities {
     private boolean flying;
     private boolean mayFly;
     private boolean instabuild;
-    private boolean noClip;
     private boolean operatorCommands;
     private float flySpeed = DEFAULT_FLY_SPEED;
     private float walkSpeed = DEFAULT_WALK_SPEED;
@@ -56,7 +55,6 @@ final class Abilities {
         this.flying = resolve(layers, AbilitiesIndex.FLYING, false);
         this.mayFly = resolve(layers, AbilitiesIndex.MAY_FLY, false);
         this.instabuild = resolve(layers, AbilitiesIndex.INSTABUILD, false);
-        this.noClip = resolve(layers, AbilitiesIndex.NO_CLIP, false);
         this.operatorCommands = resolve(layers, AbilitiesIndex.OPERATOR_COMMANDS, false);
         SerializedAbilitiesDataSerializedLayer flyLayer = layerDefining(layers, AbilitiesIndex.FLY_SPEED);
         this.flySpeed = flyLayer == null ? DEFAULT_FLY_SPEED : flyLayer.getFlySpeed();
@@ -71,7 +69,6 @@ final class Abilities {
         this.immutableWorld = settings.contains(AdventureSetting.WORLD_IMMUTABLE);
         this.mayFly = settings.contains(AdventureSetting.MAY_FLY);
         this.flying = settings.contains(AdventureSetting.FLYING) && this.mayFly;
-        this.noClip = settings.contains(AdventureSetting.NO_CLIP);
         this.mine = settings.contains(AdventureSetting.MINE);
         this.operatorCommands = settings.contains(AdventureSetting.OPERATOR);
         this.playerPermission = packet.getPlayerPermission();
@@ -110,10 +107,6 @@ final class Abilities {
 
     boolean flying() {
         return this.flying;
-    }
-
-    boolean noClip() {
-        return this.noClip;
     }
 
     /** Whether the player may break blocks at all. */
