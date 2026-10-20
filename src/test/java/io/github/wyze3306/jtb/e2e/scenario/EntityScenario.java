@@ -253,7 +253,7 @@ public final class EntityScenario implements E2eScenario {
             }
             case 140 -> {
                 this.sheepKillSent = true;
-                context.send(new ServerboundChatCommandPacket("kill @e[type=sheep,r=8]"));
+                context.send(new ServerboundChatCommandPacket("kill @e[type=sheep,name=" + SHEEP_NAME + "]"));
             }
             default -> {
             }

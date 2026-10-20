@@ -5,6 +5,7 @@ import io.github.wyze3306.jtb.player.PlayerState;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
 import io.github.wyze3306.jtb.session.StateKey;
+import io.github.wyze3306.jtb.world.WorldState;
 import io.netty.buffer.Unpooled;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
@@ -115,6 +116,7 @@ public final class EntityTracker implements SessionState {
         this.uniqueToRuntime.defaultReturnValue(Long.MIN_VALUE);
         this.playerList = new PlayerListState(session, this);
         this.nametags = new PlayerNametags(session);
+        session.get(WorldState.KEY).onDimensionChange(this::onDimensionChange);
     }
 
     // ------------------------------------------------------------------ ids
@@ -382,8 +384,9 @@ public final class EntityTracker implements SessionState {
     }
 
     /**
-     * The Java client changed dimension (a Java respawn drops every entity). The world subsystem calls
-     * this after sending the respawn; the tab list and the local player are kept.
+     * The Java client changed dimension (a Java respawn drops every entity): registered with
+     * {@link WorldState#onDimensionChange}, run after the respawn was sent. The tab list and the local
+     * player are kept.
      */
     public void onDimensionChange() {
         List<TrackedEntity> all = new ArrayList<>(this.entities.values());
