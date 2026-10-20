@@ -64,8 +64,12 @@ record CommandArgument(CommandParser parser, CommandProperties properties, Synta
     record Players() implements Source {
     }
 
-    /** Item (and block) identifiers known by the server, for the client-populated Item/Block enums. */
+    /** Item identifiers known by the server, for the client-populated {@code Item} enum. */
     record Items() implements Source {
+    }
+
+    /** Block identifiers known by the server, for the client-populated {@code Block} enum. */
+    record Blocks() implements Source {
     }
 
     /**

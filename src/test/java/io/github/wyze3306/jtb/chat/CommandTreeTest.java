@@ -46,6 +46,11 @@ class CommandTreeTest {
         public Collection<String> itemIdentifiers() {
             return List.of("minecraft:diamond", "minecraft:diamond_sword", "minecraft:stone");
         }
+
+        @Override
+        public Collection<String> blockIdentifiers() {
+            return List.of("minecraft:stone", "minecraft:diamond_block");
+        }
     };
 
     // ------------------------------------------------------------------ Bedrock data helpers
@@ -106,6 +111,8 @@ class CommandTreeTest {
                         new CommandParamData[]{enumParam("gameMode", "GameMode", false, false, "survival", "creative", "s", "c"),
                                 param("player", CommandParam.SELECTION, true)}),
                 command("say", List.of(), new CommandParamData[]{param("message", CommandParam.MESSAGE_ROOT, false)}),
+                command("setblock", List.of(), new CommandParamData[]{param("position", CommandParam.POSITION, false),
+                        enumParam("tileName", "Block", false, false), param("blockStates", CommandParam.BLOCK_STATE_ARRAY, true)}),
                 command("tag", List.of(),
                         new CommandParamData[]{param("entity", CommandParam.SELECTION, false), enumParam("add", "TagAdd", false, false, "add"),
                                 enumParam("name", "Tags", false, true)}),
@@ -250,6 +257,14 @@ class CommandTreeTest {
         CommandTree.Completion completion = sampleTree().complete("/give @s dia", DATA);
         assertEquals(List.of("minecraft:diamond", "minecraft:diamond_sword"), completion.matches());
         assertEquals(9, completion.start());
+    }
+
+    @Test
+    void suggestsBlocksAfterAPosition() {
+        CommandTree.Completion completion = sampleTree().complete("/setblock ~ ~1 ~ dia", DATA);
+        assertEquals(List.of("minecraft:diamond_block"), completion.matches());
+        assertEquals(17, completion.start());
+        assertTrue(sampleTree().complete("/setblock ~ ~1", DATA).matches().isEmpty());
     }
 
     @Test

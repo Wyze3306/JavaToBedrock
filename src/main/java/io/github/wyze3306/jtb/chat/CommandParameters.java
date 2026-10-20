@@ -1,5 +1,6 @@
 package io.github.wyze3306.jtb.chat;
 
+import io.github.wyze3306.jtb.chat.CommandArgument.Blocks;
 import io.github.wyze3306.jtb.chat.CommandArgument.Items;
 import io.github.wyze3306.jtb.chat.CommandArgument.Players;
 import io.github.wyze3306.jtb.chat.CommandArgument.SoftEnum;
@@ -17,7 +18,6 @@ import org.geysermc.mcprotocollib.protocol.data.game.command.properties.FloatPro
 import org.geysermc.mcprotocollib.protocol.data.game.command.properties.IntegerProperties;
 import org.geysermc.mcprotocollib.protocol.data.game.command.properties.ScoreHolderProperties;
 import org.geysermc.mcprotocollib.protocol.data.game.command.properties.StringProperties;
-import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 import java.util.Locale;
@@ -52,6 +52,7 @@ final class CommandParameters {
 
     private static final List<Source> PLAYERS = List.of(new Players());
     private static final List<Source> ITEMS = List.of(new Items());
+    private static final List<Source> BLOCKS = List.of(new Blocks());
 
     private CommandParameters() {
     }
@@ -99,10 +100,10 @@ final class CommandParameters {
             return new Argument(new CommandArgument(CommandParser.STRING, StringProperties.QUOTABLE_PHRASE, Syntax.QUOTABLE,
                     name, List.of(new SoftEnum(name))));
         }
-        if (values.isEmpty() && isItemEnum(name)) {
+        if (values.isEmpty() && ("Item".equalsIgnoreCase(name) || "Block".equalsIgnoreCase(name))) {
             // Filled by the vanilla client from its own registries; PowerNukkitX sends them empty.
             return new Argument(new CommandArgument(CommandParser.RESOURCE_LOCATION, CommandArgument.NO_PROPERTIES, Syntax.WORD,
-                    name, ITEMS));
+                    name, "Item".equalsIgnoreCase(name) ? ITEMS : BLOCKS));
         }
         if (!values.isEmpty() && values.size() <= MAX_LITERAL_ENUM && values.stream().allMatch(CommandParameters::isLiteralSafe)) {
             return new Literals(values);
@@ -172,11 +173,6 @@ final class CommandParameters {
 
     private static String label(CommandParamType type) {
         return type.name().toLowerCase(Locale.ROOT).replace('_', ' ');
-    }
-
-    /** The enums the Bedrock client fills from its item registry. */
-    static boolean isItemEnum(@Nullable String name) {
-        return "Item".equalsIgnoreCase(name) || "Block".equalsIgnoreCase(name);
     }
 
     /** A literal node matches the exact text up to a space: anything without whitespace works. */

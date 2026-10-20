@@ -18,6 +18,7 @@ import org.cloudburstmc.protocol.bedrock.data.command.CommandOriginData;
 import org.cloudburstmc.protocol.bedrock.data.command.CommandOriginType;
 import org.cloudburstmc.protocol.bedrock.data.command.CommandOverloadData;
 import org.cloudburstmc.protocol.bedrock.data.command.CommandParamData;
+import org.cloudburstmc.protocol.bedrock.data.definitions.ItemDefinition;
 import org.cloudburstmc.protocol.bedrock.data.payload.text.AuthorAndMessage;
 import org.cloudburstmc.protocol.bedrock.packet.AvailableCommandsPacket;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
@@ -268,6 +269,18 @@ public final class ChatState implements SessionState, CommandTree.SuggestionData
     @Override
     public Collection<String> itemIdentifiers() {
         return this.session.get(ItemRegistry.KEY).definitions().keySet();
+    }
+
+    /** Blocks are the items with a block runtime id: below 256 (negative for the newer blocks). */
+    @Override
+    public Collection<String> blockIdentifiers() {
+        List<String> blocks = new ArrayList<>();
+        for (ItemDefinition definition : this.session.get(ItemRegistry.KEY).definitions().values()) {
+            if (definition.getRuntimeId() < 256) {
+                blocks.add(definition.getIdentifier());
+            }
+        }
+        return blocks;
     }
 
     /** The tree last sent to the client, or null before the server sent its commands. */

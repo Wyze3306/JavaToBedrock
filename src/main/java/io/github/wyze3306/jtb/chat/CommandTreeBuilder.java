@@ -63,14 +63,16 @@ final class CommandTreeBuilder {
      * (cheats off) only those flagged {@code NOT_CHEAT} remain, like on the Bedrock client.
      */
     CommandTreeBuilder addAll(List<CommandData> commands, boolean commandsEnabled) {
-        for (CommandData command : commands) {
-            if (command.getFlags().contains(CommandData.Flag.HIDDEN_FROM_PLAYER)) {
-                continue;
-            }
-            if (!commandsEnabled && !command.getFlags().contains(CommandData.Flag.NOT_CHEAT)) {
-                continue;
-            }
+        List<CommandData> visible = commands.stream()
+                .filter(command -> !command.getFlags().contains(CommandData.Flag.HIDDEN_FROM_PLAYER))
+                .filter(command -> commandsEnabled || command.getFlags().contains(CommandData.Flag.NOT_CHEAT))
+                .toList();
+        for (CommandData command : visible) {
             add(command);
+        }
+        // Aliases last, so that a real command name always wins over another command's alias.
+        for (CommandData command : visible) {
+            addAliases(command);
         }
         return this;
     }
@@ -112,7 +114,7 @@ final class CommandTreeBuilder {
         return new CommandTree(this.root);
     }
 
-    void add(CommandData data) {
+    private void add(CommandData data) {
         String name = data.getName();
         if (name == null || !CommandParameters.isLiteralSafe(name) || has(name)) {
             return;
@@ -128,16 +130,21 @@ final class CommandTreeBuilder {
         for (CommandOverloadData overload : overloads) {
             addOverload(command, overload.getOverloads(), subcommands);
         }
+    }
 
+    /** One literal per alias, redirecting to the command (PowerNukkitX lists the name among its aliases). */
+    private void addAliases(CommandData data) {
         CommandEnumData aliases = data.getAliases();
-        if (aliases != null) {
-            for (String alias : aliases.getValues().keySet()) {
-                if (!alias.equals(name) && CommandParameters.isLiteralSafe(alias) && !has(alias)) {
-                    Node node = Node.literal(alias);
-                    node.redirect = command;
-                    node.executable = command.executable;
-                    this.root.children.put(Node.literalKey(alias), node);
-                }
+        Node command = data.getName() == null ? null : this.root.literalChild(data.getName());
+        if (aliases == null || command == null) {
+            return;
+        }
+        for (String alias : aliases.getValues().keySet()) {
+            if (CommandParameters.isLiteralSafe(alias) && !has(alias)) {
+                Node node = Node.literal(alias);
+                node.redirect = command;
+                node.executable = command.executable;
+                this.root.children.put(Node.literalKey(alias), node);
             }
         }
     }

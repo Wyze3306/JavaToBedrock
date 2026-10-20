@@ -41,6 +41,10 @@ final class ChatTranslators {
             return;
         }
         boolean overlay = type == TextPacketType.TIP || type == TextPacketType.POPUP || type == TextPacketType.JUKEBOX_POPUP;
+        if (overlay && text.indexOf('\n') >= 0) {
+            // Bedrock stacks popup/tip lines above the hotbar; the Java action bar has a single line.
+            text = text.replace('\n', ' ');
+        }
         session.sendJava(new ClientboundSystemChatPacket(BedrockText.legacyToComponent(text), overlay));
     }
 

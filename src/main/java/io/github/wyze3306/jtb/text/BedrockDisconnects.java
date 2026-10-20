@@ -5,6 +5,8 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.cloudburstmc.protocol.bedrock.packet.DisconnectPacket;
 
+import java.util.List;
+
 /**
  * Bedrock disconnect reasons to the Java kick screen.
  */
@@ -33,7 +35,8 @@ public final class BedrockDisconnects {
         if (key.startsWith("disconnectionScreen.") || key.startsWith("disconnect.")) {
             return Component.text("Déconnecté du serveur Bedrock (" + key + ")", NamedTextColor.RED);
         }
-        return BedrockText.legacyToComponent(reason);
+        // The Bedrock client localises kick messages too ("§c%disconnectionScreen.kicked: ...").
+        return BedrockText.legacyToComponent(BedrockTranslation.translate(lang, reason, List.of()));
     }
 
     private static String toCamel(String enumName) {

@@ -1,5 +1,6 @@
 package io.github.wyze3306.jtb.chat;
 
+import io.github.wyze3306.jtb.chat.CommandArgument.Blocks;
 import io.github.wyze3306.jtb.chat.CommandArgument.Items;
 import io.github.wyze3306.jtb.chat.CommandArgument.Players;
 import io.github.wyze3306.jtb.chat.CommandArgument.SoftEnum;
@@ -36,7 +37,7 @@ final class CommandTree {
 
     /** Selectors offered for target arguments, like the Bedrock client. */
     static final List<String> SELECTORS = List.of("@a", "@e", "@p", "@r", "@s", "@initiator");
-    private static final int MAX_SUGGESTIONS = 1000;
+    private static final int MAX_SUGGESTIONS = 5000;
     private static final int MAX_DEPTH = 128;
 
     /** Where dynamic suggestions come from. */
@@ -47,6 +48,8 @@ final class CommandTree {
         Collection<String> playerNames();
 
         Collection<String> itemIdentifiers();
+
+        Collection<String> blockIdentifiers();
     }
 
     /** A suggestion answer: replace {@code [start, start + length)} of the text with one of {@code matches}. */
@@ -245,7 +248,7 @@ final class CommandTree {
         int start = !input.isEmpty() && input.charAt(0) == '/' ? 1 : 0;
         List<Node> targets = new ArrayList<>();
         List<Integer> starts = new ArrayList<>();
-        walk(this.root, input, start, targets, starts, 0);
+        walk(this.root, input, start, targets, starts, new HashSet<>(), 0);
         int from = input.length();
         Set<String> matches = new LinkedHashSet<>();
         for (int i = 0; i < targets.size(); i++) {
@@ -262,8 +265,13 @@ final class CommandTree {
         return new Completion(from, input.length() - from, List.copyOf(matches));
     }
 
-    private void walk(Node node, String input, int position, List<Node> targets, List<Integer> starts, int depth) {
-        if (depth > MAX_DEPTH) {
+    /** A node reached at a text position: the walk from there is the same whatever the path, so it runs once. */
+    private record Visit(Node node, int position) {
+    }
+
+    private void walk(Node node, String input, int position, List<Node> targets, List<Integer> starts, Set<Visit> visited,
+                      int depth) {
+        if (depth > MAX_DEPTH || !visited.add(new Visit(node, position))) {
             return;
         }
         Node from = node.children.isEmpty() && node.redirect != null ? node.redirect : node;
@@ -272,7 +280,7 @@ final class CommandTree {
                 int end = position + child.name.length();
                 if (end < input.length() && input.charAt(end) == ' '
                         && input.regionMatches(true, position, child.name, 0, child.name.length())) {
-                    walk(child, input, end + 1, targets, starts, depth + 1);
+                    walk(child, input, end + 1, targets, starts, visited, depth + 1);
                 }
                 continue;
             }
@@ -284,7 +292,7 @@ final class CommandTree {
                 targets.add(child);
                 starts.add(position);
             } else if (end > position && input.charAt(end) == ' ') {
-                walk(child, input, end + 1, targets, starts, depth + 1);
+                walk(child, input, end + 1, targets, starts, visited, depth + 1);
             }
         }
     }
@@ -399,6 +407,7 @@ final class CommandTree {
                     addMatching(data.playerNames(), lowerPrefix, out, true);
                 }
                 case Items items -> addMatching(data.itemIdentifiers(), lowerPrefix, out, false);
+                case Blocks blocks -> addMatching(data.blockIdentifiers(), lowerPrefix, out, false);
             }
         }
     }
