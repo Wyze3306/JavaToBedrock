@@ -251,6 +251,23 @@ class SoundMappingsTest {
     }
 
     @Test
+    void bedrockHearingDistancesBecomeJavaRanges() {
+        JavaSound levelUp = SoundMappings.vanillaSound("random.levelup");
+        assertSame(BuiltinSound.ENTITY_PLAYER_LEVELUP, levelUp.wireSound(1f));
+        // Discs: fixed 64 blocks whatever the volume.
+        CustomSound disc = (CustomSound) SoundMappings.vanillaSound("record.cat").wireSound(1f);
+        assertEquals("minecraft:music_disc.cat", disc.getName());
+        assertTrue(disc.isNewSystem());
+        assertEquals(64f, disc.getRange());
+        // Note blocks at Java's volume 3 already reach Bedrock's 48 blocks: plain event.
+        assertSame(BuiltinSound.BLOCK_NOTE_BLOCK_HARP, SoundMappings.vanillaSound("note.harp").wireSound(3f));
+        // Thunder: full volume within 100 blocks on Bedrock.
+        JavaSound thunder = SoundMappings.vanillaSound("ambient.weather.thunder");
+        assertEquals(200f, thunder.wireSound(1f).getRange());
+        assertSame(BuiltinSound.ENTITY_LIGHTNING_BOLT_THUNDER, thunder.wireSound(1000f));
+    }
+
+    @Test
     void customSoundsUseTheJtbNamespace() {
         assertEquals("mob.boss_roar", CustomSounds.path("Mob.Boss:Roar"));
         assertEquals("ambient/cave-1_x", CustomSounds.path("ambient/cave-1 x"));

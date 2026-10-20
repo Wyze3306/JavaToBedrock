@@ -29,9 +29,12 @@ public final class JavaEffects {
     private JavaEffects() {
     }
 
-    /** Plays a sound at a position. Volume above 1 widens the range (16 blocks per unit), like on both editions. */
+    /**
+     * Plays a sound at a position. Volume above 1 widens the range (16 blocks per unit) unless the Bedrock
+     * definition fixes it (see {@link JavaSound#wireSound}).
+     */
     public static void sound(ProxySession session, JavaSound sound, double x, double y, double z, float volume, float pitch) {
-        session.sendJava(new ClientboundSoundPacket(sound.sound(), sound.category(), x, y, z, volume, pitch,
+        session.sendJava(new ClientboundSoundPacket(sound.wireSound(volume), sound.category(), x, y, z, volume, pitch,
                 ThreadLocalRandom.current().nextLong()));
     }
 

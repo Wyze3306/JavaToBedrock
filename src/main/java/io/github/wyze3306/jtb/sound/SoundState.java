@@ -105,7 +105,7 @@ public final class SoundState implements SessionState {
     private @Nullable JavaSound music;
     private int sleeping;
 
-    private final Map<String, SoundCategory> packCategories = new HashMap<>();
+    private final Map<String, JavaSound> packSounds = new HashMap<>();
     private final Map<String, Map<String, SoundMappings.Variant>> packEntitySounds = new HashMap<>();
     private final Map<String, JavaSound> customSounds = new HashMap<>();
     private final Int2ObjectMap<String> blockSoundTypes = new Int2ObjectOpenHashMap<>();
@@ -168,12 +168,13 @@ public final class SoundState implements SessionState {
     // ------------------------------------------------------------------ resource pack sounds
 
     /**
-     * Declares a sound of the server's resource packs and its Bedrock category ({@code sound_definitions.json}
-     * {@code category}: ambient, block, hostile...). Unregistered pack sounds play in the master category.
+     * Declares a sound of the server's resource packs with its {@code sound_definitions.json} entry: Bedrock
+     * {@code category} (ambient, block, hostile...; null = master), {@code max_distance} and
+     * {@code min_distance} (0 when absent). Unregistered pack sounds play in the master category.
      */
-    public void registerPackSound(String bedrockName, @Nullable String bedrockCategory) {
-        SoundCategory category = javaCategory(bedrockCategory);
-        this.packCategories.put(bedrockName.toLowerCase(Locale.ROOT), category);
+    public void registerPackSound(String bedrockName, @Nullable String bedrockCategory, float maxDistance, float minDistance) {
+        this.packSounds.put(bedrockName.toLowerCase(Locale.ROOT),
+                JavaSound.custom(bedrockName, javaCategory(bedrockCategory), maxDistance, minDistance));
         this.customSounds.clear();
     }
 
@@ -218,8 +219,10 @@ public final class SoundState implements SessionState {
         }
         JavaSound custom = this.customSounds.get(bedrockName);
         if (custom == null) {
-            SoundCategory category = this.packCategories.getOrDefault(bedrockName.toLowerCase(Locale.ROOT), SoundCategory.MASTER);
-            custom = JavaSound.custom(bedrockName, category);
+            custom = this.packSounds.get(bedrockName.toLowerCase(Locale.ROOT));
+            if (custom == null) {
+                custom = JavaSound.custom(bedrockName, SoundCategory.MASTER);
+            }
             if (this.customSounds.size() < 4096) {
                 this.customSounds.put(bedrockName, custom);
             }

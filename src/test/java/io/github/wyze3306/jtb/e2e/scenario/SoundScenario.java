@@ -45,6 +45,9 @@ public final class SoundScenario implements E2eScenario {
             ParticleType.GEYSER_POOF, ParticleType.GEYSER_PLUME, ParticleType.DRAGON_BREATH, ParticleType.EFFECT,
             ParticleType.INSTANT_EFFECT, ParticleType.TINTED_LEAVES, ParticleType.FLASH);
 
+    private static final Set<String> VANILLA = java.util.Arrays.stream(BuiltinSound.values())
+            .map(sound -> "minecraft:" + sound.getName()).collect(java.util.stream.Collectors.toSet());
+
     private static final Map<Integer, String> COMMANDS = new TreeMap<>(Map.ofEntries(
             Map.entry(20, "playsound random.levelup @s"),
             Map.entry(24, "playsound mypack.custom_roar @s"),
@@ -79,7 +82,7 @@ public final class SoundScenario implements E2eScenario {
     public void onPacket(ClientContext context, Packet packet) {
         if (packet instanceof ClientboundSoundPacket sound) {
             record(sound.getSound(), sound.getVolume(), sound.getPitch());
-            if (sound.getSound() == BuiltinSound.ENTITY_PLAYER_LEVELUP) {
+            if ("minecraft:entity.player.levelup".equals(name(sound.getSound()))) {
                 // /playsound plays at the player's block: catches a position scaled by 8 once too often.
                 this.levelUpDistance = Math.max(Math.abs(sound.getX() - context.x()),
                         Math.max(Math.abs(sound.getY() - context.y()), Math.abs(sound.getZ() - context.z())));
@@ -114,11 +117,16 @@ public final class SoundScenario implements E2eScenario {
         }
     }
 
+    private static String name(Sound sound) {
+        return sound instanceof BuiltinSound builtin ? "minecraft:" + builtin.getName() : sound.getName();
+    }
+
     private void record(Sound sound, float volume, float pitch) {
-        String name = sound instanceof BuiltinSound builtin ? "minecraft:" + builtin.getName() : sound.getName();
+        String name = name(sound);
         this.sounds.add(name);
-        if (sound instanceof CustomSound && !name.startsWith("jtb:")) {
-            this.invalid.add("custom sound outside the jtb namespace: " + name);
+        if (sound instanceof CustomSound && !name.startsWith("jtb:") && !VANILLA.contains(name)) {
+            // Inline events are resource pack sounds (jtb:) or vanilla ones given a Bedrock range.
+            this.invalid.add("unknown inline sound " + name);
         }
         if (!(volume >= 0) || !(pitch > 0) || Float.isInfinite(volume)) {
             this.invalid.add("bad volume/pitch " + name + " " + volume + "/" + pitch);

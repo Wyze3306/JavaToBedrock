@@ -308,10 +308,18 @@ def main():
         target = strip_ns(target)
         if target not in java.sounds:
             fail("unknown Java sound %s (for %s)" % (target, name))
-        category = (definitions.get(name) or {}).get("category") or bedrock_categories.get(name) or "neutral"
+        definition = definitions.get(name) or {}
+        category = definition.get("category") or bedrock_categories.get(name) or "neutral"
         if category not in BEDROCK_CATEGORY_TO_JAVA:
             fail("unknown Bedrock sound category " + category)
-        sounds[name] = [target, BEDROCK_CATEGORY_TO_JAVA[category]]
+        entry = [target, BEDROCK_CATEGORY_TO_JAVA[category]]
+        # Hearing distances where Bedrock deviates from the "16 blocks per unit of volume" rule both editions
+        # share by default: max_distance (fixed range), min_distance (full-volume radius, thunder and rain).
+        max_distance = definition.get("max_distance")
+        min_distance = definition.get("min_distance")
+        if (max_distance or 0) > 0 or (min_distance or 0) > 0:
+            entry += [float(max_distance or 0), float(min_distance or 0)]
+        sounds[name] = entry
     stats["bedrock sound names"] = "%d/%d vanilla sound_definitions keys (+%d extra)" % (
         sum(1 for n in definitions if n in sounds), len(definitions), len(sounds) - len(definitions))
 

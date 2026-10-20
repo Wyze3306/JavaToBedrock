@@ -128,7 +128,9 @@ public final class SoundMappings {
             if (sound == null) {
                 throw new IllegalStateException("Unknown Java sound " + value.get(0) + " for " + entry.getKey());
             }
-            loadedSounds.put(entry.getKey(), JavaSound.builtin(sound, category(value.get(1).getAsString())));
+            float maxDistance = value.size() > 2 ? value.get(2).getAsFloat() : 0f;
+            float minDistance = value.size() > 3 ? value.get(3).getAsFloat() : 0f;
+            loadedSounds.put(entry.getKey(), JavaSound.builtin(sound, category(value.get(1).getAsString()), maxDistance, minDistance));
         }
         sounds = Collections.unmodifiableMap(loadedSounds);
 

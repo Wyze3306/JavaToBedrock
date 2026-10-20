@@ -75,7 +75,7 @@ The join translator (world) calls, in order: `BlockMapper.onStartGame`, `EntityT
   name lower-cased with every character outside `[a-z0-9_.-/]` replaced by `_`
   (`Mob.Boss:Roar` -> `jtb:mob.boss_roar`). The converted pack declares them in `assets/jtb/sounds.json`;
   always build the id with `sound.CustomSounds.path(name)` / `key(name)` so both sides agree. The pack's
-  `sound_definitions.json` categories go to `SoundState.registerPackSound(name, category)` and its
+  `sound_definitions.json` entries go to `SoundState.registerPackSound(name, category, maxDistance, minDistance)` and its
   `sounds.json` entity events (custom entities) to `SoundState.registerPackEntitySound(...)`.
 - **Local predictions.** The Java client plays some effects itself: place sounds, break particles and
   sound, doors / trapdoors / fence gates / buttons, axe stripping... PowerNukkitX echoes them back to the
