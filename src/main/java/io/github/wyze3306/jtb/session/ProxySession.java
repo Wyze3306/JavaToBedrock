@@ -5,6 +5,8 @@ import io.github.wyze3306.jtb.config.ProxyConfig;
 import io.netty.channel.EventLoop;
 import io.netty.util.concurrent.ScheduledFuture;
 import net.kyori.adventure.text.Component;
+import org.cloudburstmc.netty.channel.raknet.RakChannel;
+import org.cloudburstmc.netty.handler.codec.raknet.common.RakSessionCodec;
 import org.cloudburstmc.protocol.bedrock.BedrockClientSession;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.geysermc.mcprotocollib.auth.GameProfile;
@@ -57,6 +59,7 @@ public final class ProxySession {
     private long tickCount;
     private String locale = "en_us";
     private String bedrockName;
+    private String xuid = "";
     private volatile boolean closed;
 
     public ProxySession(JavaToBedrock proxy, Session javaSession, GameProfile profile, EventLoop eventLoop) {
@@ -81,6 +84,18 @@ public final class ProxySession {
 
     public void setBedrockName(String bedrockName) {
         this.bedrockName = bedrockName;
+    }
+
+    /**
+     * The Xbox user id the Bedrock server knows this player by (derived from the Java identity in
+     * offline mode). Servers with Xbox authentication drop chat whose sender XUID differs.
+     */
+    public String getXuid() {
+        return this.xuid;
+    }
+
+    public void setXuid(String xuid) {
+        this.xuid = xuid;
     }
 
     public GameProfile getProfile() {
@@ -252,6 +267,58 @@ public final class ProxySession {
         this.javaPhase = JavaPhase.CONFIGURATION;
     }
 
+    /** Drops queued play packets (they belong to a world the client is leaving). */
+    public void clearPendingGamePackets() {
+        this.pendingGamePackets.clear();
+    }
+
+    /**
+     * Moves the player to another Bedrock server without disconnecting the Java client: closes the
+     * current Bedrock connection, discards every Bedrock-side state, sends the client back to the
+     * configuration phase and connects to {@code target}. Must run on the event loop.
+     */
+    public void switchServer(InetSocketAddress target) {
+        LOGGER.info("[{}] Switching to Bedrock server {}:{}", getName(), target.getHostString(), target.getPort());
+        detachBedrock("Transferred");
+        this.proxy.bedrockConnector().start(this, target);
+    }
+
+    /** {@link #switchServer(InetSocketAddress)} for a host name, resolved off the event loop (Bedrock transfers). */
+    public void switchServer(String host, int port) {
+        LOGGER.info("[{}] Switching to Bedrock server {}:{}", getName(), host, port);
+        detachBedrock("Transferred");
+        this.proxy.bedrockConnector().start(this, host, port);
+    }
+
+    /**
+     * Leaves the current Bedrock server while keeping the Java player: closes the Bedrock connection
+     * and every state describing its world, and sends the Java client back to the configuration
+     * phase (when in game) to wait for the next server's StartGame.
+     */
+    public void detachBedrock(String reason) {
+        BedrockClientSession old = this.bedrockSession;
+        this.bedrockSession = null;
+        if (old != null && old.isConnected()) {
+            old.disconnect(reason);
+        }
+        for (int i = 0; i < this.states.length; i++) {
+            Object state = this.states[i];
+            if (state != null && !((SessionState) state).survivesServerSwitch()) {
+                try {
+                    ((SessionState) state).close();
+                } catch (Throwable t) {
+                    LOGGER.error("[{}] Error while closing {}", getName(), state.getClass().getSimpleName(), t);
+                }
+                this.states[i] = null;
+            }
+        }
+        if (this.tickTask != null) {
+            this.tickTask.cancel(false);
+            this.tickTask = null;
+        }
+        get(io.github.wyze3306.jtb.network.java.JavaConfiguration.KEY).startServerSwitch();
+    }
+
     /**
      * The host name the Java player typed to connect (used to build resource pack URLs).
      */
@@ -275,6 +342,20 @@ public final class ProxySession {
 
     public void setBedrockSession(BedrockClientSession bedrockSession) {
         this.bedrockSession = bedrockSession;
+    }
+
+    /**
+     * The RakNet round trip time to the Bedrock server in milliseconds, or -1 when not connected.
+     */
+    public long bedrockPingMillis() {
+        BedrockClientSession session = this.bedrockSession;
+        if (session == null || !session.isConnected()
+                || !(session.getPeer().getChannel() instanceof RakChannel rak)) {
+            return -1;
+        }
+        RakSessionCodec codec = rak.rakPipeline().get(RakSessionCodec.class);
+        // The sliding window's smoothed RTT, steadier than the last ping/pong pair.
+        return codec == null ? -1 : Math.round(codec.getRTT());
     }
 
     public boolean isBedrockConnected() {

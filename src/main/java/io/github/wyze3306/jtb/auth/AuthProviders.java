@@ -23,7 +23,7 @@ public final class AuthProviders {
             case OFFLINE -> new OfflineAuthProvider();
             case TRUSTED -> {
                 KeyPair key = TrustedProxyKey.loadOrCreate(proxy.dataDirectory().resolve(config.bedrock().trustedKeyFile()));
-                LOGGER.info("Trusted mode: put this public key in the PowerNukkitX pnx.yml (java-bridge.proxy-public-key):");
+                LOGGER.info("Trusted mode: put this public key in the PowerNukkitX pnx.yml (network-settings.java-bridge.proxyPublicKeys):");
                 LOGGER.info("  {}", BedrockCrypto.encodeKey(key.getPublic()));
                 if (!config.java().onlineMode()) {
                     LOGGER.warn("Trusted mode with java.online-mode=false: the server will trust unverified Java names!");

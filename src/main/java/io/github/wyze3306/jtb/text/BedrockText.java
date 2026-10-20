@@ -8,13 +8,18 @@ import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import org.jspecify.annotations.Nullable;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Bedrock formatted text ({@code §} codes) to Adventure components and back.
  * <p>
  * Bedrock shares Java's sixteen colours and {@code §k §l §o §r}, but has no strikethrough or
  * underline: {@code §m} and {@code §n} are colours there, like the other "material" colours
- * {@code §g §h §i §j §p §q §s §t §u §v}. Those are rendered with their exact RGB on Java.
+ * {@code §g §h §i §j §p §q §s §t §u §v}. Those are rendered with their exact RGB on Java. A colour
+ * code does not reset bold/italic/obfuscated on Bedrock (it does on Java); only {@code §r} does.
  */
 public final class BedrockText {
 
@@ -63,25 +68,53 @@ public final class BedrockText {
     }
 
     /**
-     * Parses Bedrock {@code §}-formatted text. Newlines are kept as is (Java renders them in chat,
-     * titles, lore lines are split by the caller).
+     * Parses Bedrock {@code §}-formatted text. Newlines are kept as is (Java renders them in chat);
+     * use {@link #legacyToLines} where every line must be its own component (lore, name tags).
      */
     public static Component legacyToComponent(String text) {
         if (text.indexOf(SECTION) < 0) {
             return Component.text(text);
         }
         TextComponent.Builder root = Component.text();
-        StringBuilder current = new StringBuilder();
+        parse(text, 0, text.length(), Style.empty(), root);
+        return root.build();
+    }
+
+    /**
+     * Parses Bedrock {@code §}-formatted text into one component per line. Like on Bedrock, the
+     * formatting active at the end of a line continues on the next one.
+     */
+    public static List<Component> legacyToLines(String text) {
+        if (text.indexOf('\n') < 0) {
+            return List.of(legacyToComponent(text));
+        }
+        List<Component> lines = new ArrayList<>();
         Style style = Style.empty();
-        int length = text.length();
-        for (int i = 0; i < length; i++) {
+        int start = 0;
+        while (true) {
+            int end = text.indexOf('\n', start);
+            int lineEnd = end < 0 ? text.length() : end;
+            TextComponent.Builder line = Component.text();
+            style = parse(text, start, lineEnd, style, line);
+            lines.add(line.build());
+            if (end < 0) {
+                return lines;
+            }
+            start = end + 1;
+        }
+    }
+
+    /** Appends {@code text[start, end)} to {@code out}, starting with {@code style}; returns the style at the end. */
+    private static Style parse(String text, int start, int end, Style style, TextComponent.Builder out) {
+        StringBuilder current = new StringBuilder();
+        for (int i = start; i < end; i++) {
             char c = text.charAt(i);
-            if (c == SECTION && i + 1 < length) {
+            if (c == SECTION && i + 1 < end) {
                 char code = Character.toLowerCase(text.charAt(i + 1));
                 Style next = applyCode(style, code);
                 if (next != null) {
                     if (!current.isEmpty()) {
-                        root.append(Component.text(current.toString(), style));
+                        out.append(Component.text(current.toString(), style));
                         current.setLength(0);
                     }
                     style = next;
@@ -92,15 +125,18 @@ public final class BedrockText {
             current.append(c);
         }
         if (!current.isEmpty()) {
-            root.append(Component.text(current.toString(), style));
+            out.append(Component.text(current.toString(), style));
         }
-        return root.build();
+        return style;
     }
 
-    private static Style applyCode(Style style, char code) {
+    private static @Nullable Style applyCode(Style style, char code) {
         if (code < 128 && COLORS[code] != null) {
-            // A colour resets the decorations, like on both editions.
-            return Style.style(COLORS[code]).decoration(TextDecoration.ITALIC, false);
+            // Unlike Java, Bedrock keeps bold, italic and obfuscated across a colour change. Italic is
+            // forced off when unset so names and lore are not rendered in Java's default italic.
+            Style coloured = style.color(COLORS[code]);
+            return coloured.decoration(TextDecoration.ITALIC) == TextDecoration.State.NOT_SET
+                    ? coloured.decoration(TextDecoration.ITALIC, false) : coloured;
         }
         return switch (code) {
             case 'k' -> style.decorate(TextDecoration.OBFUSCATED);

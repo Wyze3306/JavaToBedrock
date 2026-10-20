@@ -23,4 +23,13 @@ public final class GameModes {
             default -> GameMode.SURVIVAL;
         };
     }
+
+    public static GameType toBedrock(GameMode mode) {
+        return switch (mode) {
+            case CREATIVE -> GameType.CREATIVE;
+            case ADVENTURE -> GameType.ADVENTURE;
+            case SPECTATOR -> GameType.SPECTATOR;
+            default -> GameType.SURVIVAL;
+        };
+    }
 }

@@ -3,6 +3,7 @@ package io.github.wyze3306.jtb.item;
 import io.github.wyze3306.jtb.mapping.JavaRegistries;
 import io.github.wyze3306.jtb.resourcepack.ConversionArtifacts;
 import io.github.wyze3306.jtb.resourcepack.ResourcePackState;
+import io.github.wyze3306.jtb.ui.MapState;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.text.BedrockLang;
 import io.github.wyze3306.jtb.text.BedrockText;
@@ -26,6 +27,7 @@ import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponen
 import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentType;
 import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentTypes;
 import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponents;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.Equippable;
 import org.geysermc.mcprotocollib.protocol.data.game.item.component.Filterable;
 import org.geysermc.mcprotocollib.protocol.data.game.item.component.Fireworks;
 import org.geysermc.mcprotocollib.protocol.data.game.item.component.ItemEnchantments;
@@ -112,10 +114,7 @@ public final class ItemTranslator {
             javaId = custom.baseJavaId();
             maxDamage = custom.maxDamage();
             components = custom.components().clone();
-            Key model = customModel(session, identifier);
-            if (model != null) {
-                components.put(DataComponentTypes.ITEM_MODEL, model);
-            }
+            applyPackAssets(session, identifier, components);
         }
         NbtMap tag = item.getTag();
         if (tag != null && !tag.isEmpty()) {
@@ -136,17 +135,28 @@ public final class ItemTranslator {
     }
 
     /**
-     * The {@code item_model} of a custom item: the model the converted resource pack made for it
-     * ({@code jtb:item/<namespace>/<path>}), or null when the client has no such pack (declined,
-     * failed, or no model for this item): the base item's vanilla look is shown then.
+     * What the converted resource pack made for a custom item, when the client loaded it: the
+     * {@code item_model} ({@code jtb:item/<namespace>/<path>}) and, for armour, the equipment asset of
+     * the {@code equippable} component. Without the pack (declined, failed, nothing for this item) the
+     * base item keeps its own look instead of a missing model.
      */
-    public static @Nullable Key customModel(ProxySession session, String identifier) {
+    static void applyPackAssets(ProxySession session, String identifier, DataComponents components) {
         ResourcePackState pack = session.getIfPresent(ResourcePackState.KEY);
-        return customModel(pack == null ? null : pack.artifacts(), identifier);
+        ConversionArtifacts artifacts = pack == null ? null : pack.artifacts();
+        Key model = customModel(artifacts, identifier);
+        if (model != null) {
+            components.put(DataComponentTypes.ITEM_MODEL, model);
+        }
+        Equippable equippable = components.get(DataComponentTypes.EQUIPPABLE);
+        String asset = artifacts == null || equippable == null ? null : artifacts.equipmentAsset(identifier);
+        if (asset != null && Key.parseable(asset)) {
+            components.put(DataComponentTypes.EQUIPPABLE, equippable.toBuilder().model(Key.key(asset)).build());
+        }
     }
 
+    /** The {@code item_model} the converted pack made for a custom item, or null. */
     static @Nullable Key customModel(@Nullable ConversionArtifacts artifacts, String identifier) {
-        String model = artifacts == null ? null : artifacts.itemModels().get(identifier);
+        String model = artifacts == null ? null : artifacts.itemModel(identifier);
         return model == null || !Key.parseable(model) ? null : Key.key(model);
     }
 
@@ -294,7 +304,7 @@ public final class ItemTranslator {
             }
         }
         if (tag.containsKey("map_uuid")) {
-            out.put(DataComponentTypes.MAP_ID, session.get(ItemRegistry.KEY).javaMapId(tag.getNumber("map_uuid", 0).longValue()));
+            out.put(DataComponentTypes.MAP_ID, session.get(MapState.KEY).javaMapId(tag.getNumber("map_uuid", 0).longValue()));
         }
         List<String> sherds = tag.getList("sherds", NbtType.STRING, List.of());
         if (sherds.size() == 4) {

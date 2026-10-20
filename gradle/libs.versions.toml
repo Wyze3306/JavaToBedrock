@@ -1,5 +1,7 @@
 [versions]
 mcprotocollib = "26.3"
+# Same version as the one MCProtocolLib depends on
+minecraftauth = "5.0.0"
 bedrock-protocol = "3.0.0.Beta7-Debug-SNAPSHOT"
 netty = "4.2.17.Final"
 # Same RakNet transport as the PowerNukkitX server
@@ -13,6 +15,7 @@ junit = "6.1.3"
 
 [libraries]
 mcprotocollib = { module = "org.geysermc.mcprotocollib:protocol", version.ref = "mcprotocollib" }
+minecraftauth = { module = "net.raphimc:MinecraftAuth", version.ref = "minecraftauth" }
 bedrock-connection = { module = "org.powernukkitx.protocol:bedrock-connection", version.ref = "bedrock-protocol" }
 netty-all = { module = "io.netty:netty-all", version.ref = "netty" }
 netty-raknet = { module = "org.cloudburstmc.netty:netty-transport-raknet", version.ref = "raknet" }

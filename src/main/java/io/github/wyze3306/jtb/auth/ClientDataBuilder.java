@@ -4,12 +4,12 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.skin.BedrockSkinData;
+import io.github.wyze3306.jtb.text.BedrockLang;
 import org.jose4j.lang.JoseException;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.Base64;
-import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -33,7 +33,16 @@ public final class ClientDataBuilder {
 
     public static String build(ProxySession session, KeyPair identityKey, BedrockSkinData skin, String gameVersion,
                                String serverAddress) throws JoseException {
-        UUID javaId = session.getProfile().getId();
+        return build(session.getProfile().getId(), session.getName(),
+                bedrockLanguage(session.getLocale(), session.config().bedrock().defaultLanguage()),
+                identityKey, skin, gameVersion, serverAddress);
+    }
+
+    /**
+     * @param languageCode Bedrock language code, e.g. {@code fr_FR}
+     */
+    public static String build(UUID javaId, String javaName, String languageCode, KeyPair identityKey,
+                               BedrockSkinData skin, String gameVersion, String serverAddress) throws JoseException {
         JsonObject data = new JsonObject();
         data.add("AnimatedImageData", new JsonArray());
         data.addProperty("ArmSize", skin.armSize());
@@ -56,7 +65,7 @@ public final class ClientDataBuilder {
         data.addProperty("GraphicsMode", GRAPHICS_FANCY);
         data.addProperty("GuiScale", 0);
         data.addProperty("IsEditorMode", false);
-        data.addProperty("LanguageCode", bedrockLanguage(session.getLocale(), session.config().bedrock().defaultLanguage()));
+        data.addProperty("LanguageCode", languageCode);
         data.addProperty("MaxViewDistance", 96);
         data.addProperty("MemoryTier", MEMORY_TIER_HIGH);
         data.addProperty("OverrideSkin", false);
@@ -79,19 +88,17 @@ public final class ClientDataBuilder {
         data.addProperty("SkinImageHeight", skin.height());
         data.addProperty("SkinImageWidth", skin.width());
         data.addProperty("SkinResourcePatch", B64.encodeToString(skin.resourcePatch().getBytes(StandardCharsets.UTF_8)));
-        data.addProperty("ThirdPartyName", session.getName());
+        data.addProperty("ThirdPartyName", javaName);
         data.addProperty("TrustedSkin", false);
         data.addProperty("UIProfile", UI_CLASSIC);
         return BedrockCrypto.sign(identityKey, data.toString());
     }
 
     /**
-     * Java locale ({@code fr_fr}) to Bedrock language code ({@code fr_FR}).
+     * Java locale ({@code fr_fr}) to the closest Bedrock language code ({@code fr_FR}); see
+     * {@link BedrockLang#codeForJavaLocale}.
      */
     public static String bedrockLanguage(String javaLocale, String fallback) {
-        if (javaLocale == null || javaLocale.length() < 5 || javaLocale.charAt(2) != '_') {
-            return fallback;
-        }
-        return javaLocale.substring(0, 2).toLowerCase(Locale.ROOT) + "_" + javaLocale.substring(3).toUpperCase(Locale.ROOT);
+        return BedrockLang.codeForJavaLocale(javaLocale, fallback);
     }
 }

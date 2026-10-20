@@ -154,7 +154,7 @@ class ItemTranslatorTest {
     @Test
     void customItems() {
         ConversionArtifacts artifacts = new ConversionArtifacts();
-        artifacts.itemModels().put("mymod:ruby_sword", "jtb:item/mymod/ruby_sword");
+        artifacts.putItemModel("mymod:ruby_sword", "jtb:item/mymod/ruby_sword");
         assertEquals(Key.key("jtb", "item/mymod/ruby_sword"), ItemTranslator.customModel(artifacts, "mymod:ruby_sword"));
         assertNull(ItemTranslator.customModel(artifacts, "mymod:other"));
         assertNull(ItemTranslator.customModel((ConversionArtifacts) null, "mymod:ruby_sword"));

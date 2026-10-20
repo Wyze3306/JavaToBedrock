@@ -68,13 +68,13 @@ class ClickHandlerTest {
         assertEquals(2, this.tx.planned().size());
         TakeAction take = assertInstanceOf(TakeAction.class, only(0));
         assertEquals(8, take.getAmount());
-        assertEquals(ContainerEnumName.HOTBAR_CONTAINER, take.getSource().getContainerEnumName());
+        assertEquals(ContainerEnumName.HOTBAR_CONTAINER, take.getSource().getFullContainerName().getContainerName());
         assertEquals(0, take.getSource().getSlot());
         assertEquals(11, take.getSource().getStackNetworkId());
-        assertEquals(ContainerEnumName.CURSOR_CONTAINER, take.getDestination().getContainerEnumName());
+        assertEquals(ContainerEnumName.CURSOR_CONTAINER, take.getDestination().getFullContainerName().getContainerName());
         PlaceAction place = assertInstanceOf(PlaceAction.class, only(1));
         assertEquals(8, place.getAmount());
-        assertEquals(ContainerEnumName.INVENTORY_CONTAINER, place.getDestination().getContainerEnumName());
+        assertEquals(ContainerEnumName.INVENTORY_CONTAINER, place.getDestination().getFullContainerName().getContainerName());
         assertEquals(9, place.getDestination().getSlot());
         assertTrue(ItemTranslator.isAir(slot(36)));
         assertEquals(8, slot(9).getCount());
@@ -131,7 +131,7 @@ class ClickHandlerTest {
         this.mirror.player.set(9, item("minecraft:diamond_helmet", 1, 11));
         this.click.quickMove(9);
         PlaceAction place = assertInstanceOf(PlaceAction.class, only(0));
-        assertEquals(ContainerEnumName.ARMOR_CONTAINER, place.getDestination().getContainerEnumName());
+        assertEquals(ContainerEnumName.ARMOR_CONTAINER, place.getDestination().getFullContainerName().getContainerName());
         assertEquals(0, place.getDestination().getSlot());
         assertEquals("minecraft:diamond_helmet", slot(5).getDefinition().getIdentifier());
     }
@@ -145,7 +145,7 @@ class ClickHandlerTest {
         this.click.swap(38, 40);
         assertEquals(8, slot(45).getCount());
         SwapAction swap = assertInstanceOf(SwapAction.class, only(1));
-        assertEquals(ContainerEnumName.OFFHAND_CONTAINER, swap.getDestination().getContainerEnumName());
+        assertEquals(ContainerEnumName.OFFHAND_CONTAINER, swap.getDestination().getFullContainerName().getContainerName());
         assertEquals(1, swap.getDestination().getSlot());
     }
 
@@ -204,10 +204,10 @@ class ClickHandlerTest {
         assertEquals(1, craft.getNumberOfRequestedCrafts());
         ConsumeAction consume = assertInstanceOf(ConsumeAction.class, actions[1]);
         assertEquals(1, consume.getAmount());
-        assertEquals(ContainerEnumName.CRAFTING_INPUT_CONTAINER, consume.getSource().getContainerEnumName());
+        assertEquals(ContainerEnumName.CRAFTING_INPUT_CONTAINER, consume.getSource().getFullContainerName().getContainerName());
         assertEquals(28, consume.getSource().getSlot());
         TakeAction take = assertInstanceOf(TakeAction.class, actions[actions.length - 1]);
-        assertEquals(ContainerEnumName.CREATED_OUTPUT_CONTAINER, take.getSource().getContainerEnumName());
+        assertEquals(ContainerEnumName.CREATED_OUTPUT_CONTAINER, take.getSource().getFullContainerName().getContainerName());
         assertEquals(4, take.getAmount());
         assertEquals(4, cursor().getCount());
         assertEquals(2, slot(1).getCount());

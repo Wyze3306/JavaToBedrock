@@ -8,8 +8,6 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
-import it.unimi.dsi.fastutil.longs.Long2IntMap;
-import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import org.cloudburstmc.protocol.bedrock.data.definitions.ItemDefinition;
 import org.cloudburstmc.protocol.common.DefinitionRegistry;
 import org.cloudburstmc.protocol.common.SimpleDefinitionRegistry;
@@ -24,9 +22,7 @@ import java.util.Map;
  * The server's item registry (vanilla and custom items with their runtime ids and components), as
  * sent in {@code ItemRegistryPacket}. Also installed in the codec so item stacks can be decoded.
  * <p>
- * Also keeps the per-session item state shared by the subsystems that show items: the Java form of
- * the server's custom items ({@link #customItem}) and the Java map ids allocated for Bedrock map
- * uuids ({@link #javaMapId}).
+ * Also keeps the Java form of the server's custom items ({@link #customItem}).
  */
 public final class ItemRegistry implements SessionState {
 
@@ -35,14 +31,12 @@ public final class ItemRegistry implements SessionState {
     private final Int2ObjectMap<ItemDefinition> byRuntimeId = new Int2ObjectOpenHashMap<>();
     private final Map<String, ItemDefinition> byIdentifier = new HashMap<>();
     private final Map<ItemDefinition, CustomItems.CustomItem> customItems = new IdentityHashMap<>();
-    private final Long2IntMap javaMapIds = new Long2IntOpenHashMap();
     private final ProxySession session;
     private DefinitionRegistry<ItemDefinition> codecRegistry = SimpleDefinitionRegistry.<ItemDefinition>builder()
             .add(ItemDefinition.AIR).build();
 
     private ItemRegistry(ProxySession session) {
         this.session = session;
-        this.javaMapIds.defaultReturnValue(-1);
         this.byRuntimeId.put(0, ItemDefinition.AIR);
         this.byIdentifier.put(ItemDefinition.AIR.getIdentifier(), ItemDefinition.AIR);
     }
@@ -116,29 +110,5 @@ public final class ItemRegistry implements SessionState {
             this.customItems.put(definition, item);
         }
         return item;
-    }
-
-    /**
-     * The Java map id standing for a Bedrock map uuid ({@code map_uuid} of filled maps,
-     * {@code ClientboundMapItemData}); allocated on first use, stable for the session. Used by the
-     * inventory (map items) and ui (map contents) subsystems so both agree.
-     */
-    public int javaMapId(long bedrockMapUuid) {
-        int id = this.javaMapIds.get(bedrockMapUuid);
-        if (id < 0) {
-            id = this.javaMapIds.size();
-            this.javaMapIds.put(bedrockMapUuid, id);
-        }
-        return id;
-    }
-
-    /** The Bedrock map uuid of a Java map id allocated by {@link #javaMapId}, or -1. */
-    public long bedrockMapUuid(int javaMapId) {
-        for (Long2IntMap.Entry entry : this.javaMapIds.long2IntEntrySet()) {
-            if (entry.getIntValue() == javaMapId) {
-                return entry.getLongKey();
-            }
-        }
-        return -1;
     }
 }

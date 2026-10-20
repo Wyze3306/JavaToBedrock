@@ -102,8 +102,7 @@ public final class CustomItems {
 
         NbtMap cooldown = components.getCompound("minecraft:cooldown", null);
         if (cooldown != null && num(cooldown, "duration", 0).floatValue() > 0) {
-            String category = cooldown.getString("category", "");
-            Key group = category.isEmpty() ? null : Key.key("jtb", sanitize(category, false));
+            Key group = cooldownGroup(cooldown.getString("category", ""));
             out.put(DataComponentTypes.USE_COOLDOWN, new UseCooldown(num(cooldown, "duration", 0).floatValue(), group));
         }
 
@@ -158,6 +157,22 @@ public final class CustomItems {
             }
         }
         return Component.text(readableName(identifier));
+    }
+
+    /**
+     * Java cooldown group of a Bedrock cooldown category, the same rule as the player subsystem uses for
+     * {@code PlayerStartItemCooldown} ({@code player.StatusTranslators#cooldownGroup}): lower case,
+     * {@code minecraft} namespace when there is none, invalid characters replaced by {@code _}.
+     */
+    static @Nullable Key cooldownGroup(@Nullable String category) {
+        if (category == null || category.isEmpty()) {
+            return null;
+        }
+        String lower = category.toLowerCase(Locale.ROOT);
+        int colon = lower.indexOf(':');
+        String namespace = colon < 0 ? Key.MINECRAFT_NAMESPACE : sanitize(lower.substring(0, colon), false);
+        String value = sanitize(colon < 0 ? lower : lower.substring(colon + 1), true);
+        return namespace.isEmpty() || value.isEmpty() ? null : Key.key(namespace, value);
     }
 
     /** A numeric NBT value whatever its exact type (servers write bytes, shorts or ints). */

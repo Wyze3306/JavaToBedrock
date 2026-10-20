@@ -84,6 +84,11 @@ public final class JavaKeepAlive implements SessionState {
     }
 
     @Override
+    public boolean survivesServerSwitch() {
+        return true;
+    }
+
+    @Override
     public void close() {
         if (this.task != null) {
             this.task.cancel(false);

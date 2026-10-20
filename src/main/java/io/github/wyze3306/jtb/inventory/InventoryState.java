@@ -176,6 +176,8 @@ public final class InventoryState implements SessionState {
         this.crafting = new Crafting(session);
         this.creative = new Creative(session, this.mirror.createdOutput);
         session.get(JavaConfiguration.KEY).onGameStart(this::onGameStart);
+        // A Java respawn into another world gives the client a fresh, empty player inventory.
+        session.get(WorldState.KEY).onDimensionChange(this::resendAll);
     }
 
     // ------------------------------------------------------------------ contract
@@ -269,10 +271,21 @@ public final class InventoryState implements SessionState {
         int id = packet.getContainerId();
         List<ItemData> slots = packet.getSlots();
         switch (id) {
-            case ContainerId.INVENTORY -> fill(this.mirror.player, slots, 36);
+            // A whole player container: the Java client may have lost its copy (respawn after a death),
+            // so it gets the whole window again rather than the differences.
+            case ContainerId.INVENTORY -> {
+                fill(this.mirror.player, slots, 36);
+                this.fullContentNeeded = true;
+            }
             case ContainerId.HOTBAR -> fill(this.mirror.player, slots, 9);
-            case ContainerId.ARMOR -> fill(this.mirror.armor, slots, 4);
-            case ContainerId.OFFHAND -> fill(this.mirror.offhand, slots, 1);
+            case ContainerId.ARMOR -> {
+                fill(this.mirror.armor, slots, 4);
+                this.fullContentNeeded = true;
+            }
+            case ContainerId.OFFHAND -> {
+                fill(this.mirror.offhand, slots, 1);
+                this.fullContentNeeded = true;
+            }
             case ContainerId.UI -> fill(this.mirror.ui, slots, 54);
             default -> {
                 PendingOpen open = this.pendingOpen;
@@ -496,7 +509,7 @@ public final class InventoryState implements SessionState {
     }
 
     private Component title(ContainerType type, Vector3i position, int size) {
-        NbtMap entity = this.session.get(WorldState.KEY).blockEntityAt(position.getX(), position.getY(), position.getZ());
+        NbtMap entity = this.session.get(WorldState.KEY).bedrockBlockEntityAt(position.getX(), position.getY(), position.getZ());
         String custom = entity == null ? "" : entity.getString("CustomName", "");
         if (!custom.isEmpty()) {
             return BedrockText.legacyToComponent(custom);
@@ -698,7 +711,7 @@ public final class InventoryState implements SessionState {
     }
 
     private void openLectern(Vector3i position) {
-        NbtMap entity = this.session.get(WorldState.KEY).blockEntityAt(position.getX(), position.getY(), position.getZ());
+        NbtMap entity = this.session.get(WorldState.KEY).bedrockBlockEntityAt(position.getX(), position.getY(), position.getZ());
         NbtMap book = entity == null ? null : entity.getCompound("book", null);
         replaceOpenMenu();
         Menu menu = Menus.container(this.mirror, ContainerType.LECTERN, LECTERN_JAVA_ID, 0, ContainerEnumName.LEVEL_ENTITY_CONTAINER, false);

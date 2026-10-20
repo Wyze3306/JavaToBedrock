@@ -130,7 +130,7 @@ class InventoryStateTest {
     }
 
     @Test
-    void serverSlotUpdatesReachJava() {
+    void serverContentsReachJava() {
         this.test.javaPackets().clear();
         InventoryContentPacket content = new InventoryContentPacket();
         content.setContainerId(ContainerId.INVENTORY);
@@ -139,10 +139,11 @@ class InventoryStateTest {
         slots.set(20, ItemTranslator.withNetId(this.test.item("minecraft:diamond", 3), 12));
         content.getSlots().addAll(slots);
         this.state.onInventoryContent(content);
-        // Only the changed slot is sent.
-        List<ClientboundContainerSetSlotPacket> sent = this.test.sent(ClientboundContainerSetSlotPacket.class);
+        // A whole player container is sent to Java whole (it may have lost its copy on a respawn).
+        List<ClientboundContainerSetContentPacket> sent = this.test.sent(ClientboundContainerSetContentPacket.class);
         assertEquals(1, sent.size());
-        assertEquals(20, sent.getFirst().getSlot());
-        assertEquals(3, sent.getFirst().getItem().getAmount());
+        assertEquals(3, sent.getFirst().getItems()[20].getAmount());
+        assertEquals(8, sent.getFirst().getItems()[36].getAmount());
+        assertTrue(this.test.sent(ClientboundContainerSetSlotPacket.class).isEmpty());
     }
 }

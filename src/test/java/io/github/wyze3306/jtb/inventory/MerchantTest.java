@@ -108,7 +108,7 @@ class MerchantTest {
         assertEquals(1001, craft.getRecipeNetId().getRawId());
         ConsumeAction consume = assertInstanceOf(ConsumeAction.class, actions[1]);
         assertEquals(2, consume.getAmount());
-        assertEquals(ContainerEnumName.TRADE2_INGREDIENT1_CONTAINER, consume.getSource().getContainerEnumName());
+        assertEquals(ContainerEnumName.TRADE2_INGREDIENT1_CONTAINER, consume.getSource().getFullContainerName().getContainerName());
         TakeAction take = assertInstanceOf(TakeAction.class, actions[actions.length - 1]);
         assertEquals(6, take.getAmount());
         assertEquals(3, tx.get(menu.slot(0)).getCount());

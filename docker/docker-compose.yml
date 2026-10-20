@@ -1,0 +1,31 @@
+# Un serveur PowerNukkitX et le proxy JavaToBedrock devant lui :
+#   docker compose -f docker/docker-compose.yml up -d
+# Les joueurs Bedrock se connectent sur le port 19132/udp, les joueurs Java sur 25565.
+services:
+  pnx:
+    image: ghcr.io/powernukkitx/server:latest
+    ports:
+      - "19132:19132/udp"
+    volumes:
+      - ./pnx:/data
+    stdin_open: true
+    tty: true
+
+  javatobedrock:
+    build: ..
+    depends_on:
+      - pnx
+    ports:
+      - "25565:25565"
+      - "8765:8765"
+    volumes:
+      - ./jtb:/data
+    environment:
+      JTB_BEDROCK_ADDRESS: pnx
+      JTB_BEDROCK_PORT: "19132"
+      # offline : mettre settings.xboxAuth à false dans pnx/pnx.yml.
+      # trusted : recommandé, voir le README (section java-bridge de pnx.yml).
+      JTB_BEDROCK_AUTH: offline
+      # Adresse publique du serveur HTTP des packs vue par les joueurs Java (sinon déduite de
+      # l'adresse tapée par le joueur) :
+      # JTB_RESOURCE_PACKS_PUBLIC_URL: "http://mon.domaine:8765"
