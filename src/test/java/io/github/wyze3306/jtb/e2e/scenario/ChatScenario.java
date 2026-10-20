@@ -32,7 +32,8 @@ import java.util.concurrent.ThreadLocalRandom;
  * {@code /give} and {@code /tp}): chat round trip through the server, {@code /help} and
  * {@code /list} output, command output translation, the command tree ({@code list}, {@code tp},
  * {@code give} with arguments), tab completion of player names and items, proxy commands, and the
- * chat/command rate limits (bursts must arrive complete, without a kick).
+ * chat/command rate limits (bursts must arrive complete, without a kick). Takes about 8 s after the
+ * player spawned: run it for 35 s (spawning alone can take 15 s on a loaded server).
  */
 public final class ChatScenario implements E2eScenario {
 
@@ -42,11 +43,8 @@ public final class ChatScenario implements E2eScenario {
     private final String nonce = Integer.toString(ThreadLocalRandom.current().nextInt(100_000, 999_999));
     private final List<Line> lines = new CopyOnWriteArrayList<>();
     private final Map<Integer, ClientboundCommandSuggestionsPacket> suggestions = new ConcurrentHashMap<>();
-    private volatile int helpFrom = -1;
-    private volatile int listFrom = -1;
-    private volatile int giveFrom = -1;
     private volatile int errorFrom = -1;
-    private volatile int floodFrom = -1;
+    private int start = -1;
 
     private record Line(String text, Component component) {
     }
@@ -64,32 +62,30 @@ public final class ChatScenario implements E2eScenario {
 
     @Override
     public void tick(ClientContext context, int tick) {
-        switch (tick) {
-            case 40 -> chat(context, "Bonjour JTB " + this.nonce);
-            case 60 -> {
-                this.helpFrom = this.lines.size();
-                command(context, "help");
+        // The server sends its commands while spawning the player: start one second after them, so
+        // every step's output is attributed to that step even when spawning is slow.
+        if (this.start < 0) {
+            if (context.last(ClientboundCommandsPacket.class) == null) {
+                return;
             }
-            case 80 -> {
-                this.listFrom = this.lines.size();
-                command(context, "list");
-            }
-            case 90 -> {
+            this.start = tick + 20;
+        }
+        switch (tick - this.start) {
+            case 0 -> chat(context, "Bonjour JTB " + this.nonce);
+            case 20 -> command(context, "help");
+            case 40 -> command(context, "list");
+            case 50 -> {
                 context.send(new ServerboundCommandSuggestionPacket(42, "/tp Tes"));
                 context.send(new ServerboundCommandSuggestionPacket(43, "/give Tester5 minecraft:diamon"));
                 context.send(new ServerboundCommandSuggestionPacket(44, "/gamemode creative "));
             }
-            case 100 -> {
-                this.giveFrom = this.lines.size();
-                command(context, "give @s minecraft:diamond 3");
-            }
-            case 110 -> {
+            case 60 -> command(context, "give @s minecraft:diamond 3");
+            case 70 -> {
                 this.errorFrom = this.lines.size();
                 command(context, "tp NobodyHere" + this.nonce);
             }
-            case 120 -> command(context, "jtb version");
-            case 130 -> {
-                this.floodFrom = this.lines.size();
+            case 80 -> command(context, "jtb version");
+            case 90 -> {
                 for (int i = 0; i < CHAT_FLOOD; i++) {
                     chat(context, "flood " + this.nonce + " #" + i);
                 }
@@ -111,14 +107,8 @@ public final class ChatScenario implements E2eScenario {
     }
 
     private List<String> since(int from) {
-        return between(from, Integer.MAX_VALUE);
-    }
-
-    /** Chat lines received in {@code [from, to)} (indices recorded when each step started). */
-    private List<String> between(int from, int to) {
         List<String> texts = new ArrayList<>();
-        int end = Math.min(this.lines.size(), to < 0 ? this.lines.size() : to);
-        for (int i = Math.max(0, from); i < end; i++) {
+        for (int i = Math.max(0, from); i < this.lines.size(); i++) {
             texts.add(this.lines.get(i).text());
         }
         return texts;
@@ -155,20 +145,18 @@ public final class ChatScenario implements E2eScenario {
             }
         }
 
+        // Checks match content rather than arrival windows: a busy server answers late.
         List<String> all = since(0);
         context.check("chat round trip (<Tester5> message)", all.stream().anyMatch(l -> l.contains("Tester5") && l.contains("Bonjour JTB " + this.nonce)));
         context.check("no untranslated %key in chat", all.stream().noneMatch(l -> l.matches(".*%[a-z]+\\.[a-z.]+.*")));
-
-        List<String> help = between(this.helpFrom, this.listFrom);
-        context.check("/help output translated", help.stream().anyMatch(l -> l.contains("/help") && l.contains("---")));
-        List<String> list = between(this.listFrom, this.giveFrom);
-        context.check("/list output", list.stream().anyMatch(l -> l.matches(".*\\d+/\\d+.*")) && list.contains("Tester5"));
-        List<String> give = between(this.giveFrom, this.errorFrom);
-        context.check("/give command output (CommandOutput)", give.stream().anyMatch(l -> l.contains("Tester5") && l.contains("3")));
+        context.check("/help output translated", all.stream().anyMatch(l -> l.contains("/help") && l.contains("---")));
+        long listAnswers = all.stream().filter(l -> l.matches(".*\\d+/\\d+.*")).count();
+        context.check("/list output", listAnswers >= 1 && all.contains("Tester5"));
+        context.check("/give command output (CommandOutput)", all.stream()
+                .anyMatch(l -> l.contains("Tester5") && l.contains("3") && !l.startsWith("<") && !l.equals("Tester5")));
         boolean redError = false;
-        for (int i = Math.max(0, this.errorFrom); i < Math.min(this.lines.size(), this.floodFrom < 0 ? this.lines.size() : this.floodFrom); i++) {
-            Component component = this.lines.get(i).component();
-            if (!this.lines.get(i).text().isEmpty() && isRed(component)) {
+        for (int i = Math.max(0, this.errorFrom); i < this.lines.size(); i++) {
+            if (!this.lines.get(i).text().isEmpty() && isRed(this.lines.get(i).component())) {
                 redError = true;
             }
         }
@@ -182,12 +170,10 @@ public final class ChatScenario implements E2eScenario {
         context.check("tab completion of an item", items != null && Arrays.asList(items.getMatches()).contains("minecraft:diamond"));
         context.check("suggestion request answered", this.suggestions.containsKey(44));
 
-        List<String> flood = since(this.floodFrom);
-        long chatEchoes = flood.stream().filter(l -> l.contains("flood " + this.nonce)).count();
-        long listAnswers = flood.stream().filter(l -> l.matches(".*\\d+/\\d+.*")).count();
-        context.log("flood: " + chatEchoes + "/" + CHAT_FLOOD + " chat echoes, " + listAnswers + "/" + COMMAND_FLOOD + " /list answers");
+        long chatEchoes = all.stream().filter(l -> l.contains("flood " + this.nonce)).count();
+        context.log("flood: " + chatEchoes + "/" + CHAT_FLOOD + " chat echoes, " + (listAnswers - 1) + "/" + COMMAND_FLOOD + " /list answers");
         context.check("chat burst fully delivered (2/s limit)", chatEchoes == CHAT_FLOOD);
-        context.check("command burst fully delivered (10/s limit)", listAnswers == COMMAND_FLOOD);
+        context.check("command burst fully delivered (10/s limit)", listAnswers == COMMAND_FLOOD + 1);
     }
 
     /** Brigadier-like usage lines of a decoded tree, for the log. */

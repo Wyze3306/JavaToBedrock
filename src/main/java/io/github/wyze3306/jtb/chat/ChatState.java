@@ -50,15 +50,18 @@ public final class ChatState implements SessionState, CommandTree.SuggestionData
 
     public static final StateKey<ChatState> KEY = StateKey.of("chat", ChatState::new);
 
-    /**
-     * PowerNukkitX silently drops chat above 2 messages per second (Guava {@code RateLimiter}, which
-     * stores one second of permits): two may leave together, then one every 600 ms.
+    /*
+     * PowerNukkitX silently drops chat above 2 messages per second and kicks above 10 commands per
+     * second (Guava RateLimiter, which stores one second of permits). It counts when its main thread
+     * handles the packet, not when it arrives: a lagging server handles everything received during a
+     * long tick at once, so the pace leaves room for a stall of a couple of seconds.
      */
+    /** Chat: two at once after a pause, then one per second. */
     private static final int CHAT_BURST = 2;
-    private static final long CHAT_INTERVAL = TimeUnit.MILLISECONDS.toNanos(600);
-    /** Above 10 commands per second PowerNukkitX kicks for command spam: five at once, then one every 150 ms. */
+    private static final long CHAT_INTERVAL = TimeUnit.MILLISECONDS.toNanos(1000);
+    /** Commands: five at once after a pause, then four per second. */
     private static final int COMMAND_BURST = 5;
-    private static final long COMMAND_INTERVAL = TimeUnit.MILLISECONDS.toNanos(150);
+    private static final long COMMAND_INTERVAL = TimeUnit.MILLISECONDS.toNanos(250);
     private static final int MAX_QUEUED = 64;
 
     private final ProxySession session;
@@ -281,11 +284,6 @@ public final class ChatState implements SessionState, CommandTree.SuggestionData
             }
         }
         return blocks;
-    }
-
-    /** The tree last sent to the client, or null before the server sent its commands. */
-    @Nullable CommandTree tree() {
-        return this.tree;
     }
 
     @Override

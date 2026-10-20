@@ -36,7 +36,7 @@ class ThrottledQueueTest {
     @Test
     void neverExceedsTheServerLimitOverOneSecond() {
         // PowerNukkitX allows 2 chat messages per second; check any 1 s window of a long flood.
-        ThrottledQueue<Long> queue = new ThrottledQueue<>(2, 600 * MS, 1000, 0);
+        ThrottledQueue<Long> queue = new ThrottledQueue<>(2, 1000 * MS, 1000, 0);
         List<Long> times = new ArrayList<>();
         for (long i = 0; i < 100; i++) {
             queue.offer(i);

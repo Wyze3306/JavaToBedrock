@@ -242,7 +242,8 @@ final class CommandTree {
 
     /**
      * Suggestions for the argument under the cursor (the end of {@code input}, which includes the
-     * leading {@code /}), from every argument node the text can reach.
+     * leading {@code /}), from every argument node the text can reach. Siblings whose own request was
+     * suppressed contribute too: the client's single request answers for all of them.
      */
     Completion complete(String input, SuggestionData data) {
         int start = !input.isEmpty() && input.charAt(0) == '/' ? 1 : 0;
