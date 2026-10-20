@@ -12,9 +12,9 @@ dependencyResolutionManagement {
         mavenCentral()
         // MCProtocolLib (GeyserMC)
         maven("https://repo.opencollab.dev/maven-releases/")
-        maven("https://repo.opencollab.dev/maven-snapshots/") {
-            mavenContent { snapshotsOnly() }
-        }
+        // No snapshotsOnly() filter: it rejects pinned timestamped snapshots such as the RakNet
+        // transport version shared with PowerNukkitX (2.0.0.CR4-20260922.202324-5).
+        maven("https://repo.opencollab.dev/maven-snapshots/")
         // PowerNukkitX Bedrock protocol library
         maven("https://repo.powernukkitx.org/releases")
     }
