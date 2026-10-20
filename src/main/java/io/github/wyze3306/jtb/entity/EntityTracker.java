@@ -5,6 +5,7 @@ import io.github.wyze3306.jtb.player.PlayerState;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
 import io.github.wyze3306.jtb.session.StateKey;
+import io.github.wyze3306.jtb.ui.BossBarState;
 import io.github.wyze3306.jtb.world.WorldState;
 import io.netty.buffer.Unpooled;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
@@ -97,6 +98,7 @@ public final class EntityTracker implements SessionState {
     private final Int2ObjectMap<TrackedEntity> byJavaId = new Int2ObjectOpenHashMap<>();
     private final Long2LongMap uniqueToRuntime = new Long2LongOpenHashMap();
     private final LongOpenHashSet withEffects = new LongOpenHashSet();
+    private final MobSounds mobSounds;
     private final Int2IntMap temporaryEntities = new Int2IntOpenHashMap();
     private final Set<String> availableIdentifiers = new HashSet<>();
     private final MetadataWriter metadata = new MetadataWriter();
@@ -116,6 +118,7 @@ public final class EntityTracker implements SessionState {
         this.uniqueToRuntime.defaultReturnValue(Long.MIN_VALUE);
         this.playerList = new PlayerListState(session, this);
         this.nametags = new PlayerNametags(session);
+        this.mobSounds = new MobSounds(session, this);
         session.get(WorldState.KEY).onDimensionChange(this::onDimensionChange);
     }
 
@@ -327,6 +330,11 @@ public final class EntityTracker implements SessionState {
         this.entities.put(runtimeId, entity);
         this.byJavaId.put(javaId, entity);
         this.uniqueToRuntime.put(uniqueId, runtimeId);
+        if (kind == TrackedEntity.Kind.VANILLA && definition.isLiving()) {
+            // Bedrock's defaults: the server sends ambient sound data for a few mobs only.
+            entity.ambientEvent = "ambient";
+            this.mobSounds.onAmbientData(entity);
+        }
         return entity;
     }
 
@@ -341,11 +349,17 @@ public final class EntityTracker implements SessionState {
         int[] ids = Arrays.copyOf(entity.parts, entity.parts.length + 1);
         ids[ids.length - 1] = entity.javaId();
         this.session.sendJava(new ClientboundRemoveEntitiesPacket(ids));
+        // Bedrock drops a boss's bar with the boss.
+        BossBarState bars = this.session.getIfPresent(BossBarState.KEY);
+        if (bars != null) {
+            bars.onEntityRemoved(entity.uniqueId());
+        }
         forget(entity);
     }
 
     /** Drops the bookkeeping of an entity without telling the client. */
     private void forget(TrackedEntity entity) {
+        this.mobSounds.forget(entity);
         this.entities.remove(entity.runtimeId());
         this.byJavaId.remove(entity.javaId());
         unbind(entity.runtimeId());
@@ -466,6 +480,9 @@ public final class EntityTracker implements SessionState {
         }
         if (angle(headYaw) != angle(entity.headYaw)) {
             this.session.sendJava(new ClientboundRotateHeadPacket(id, headYaw));
+        }
+        if (moved && !teleport) {
+            this.mobSounds.onMoved(entity, x, y, z, onGround);
         }
         entity.x = x;
         entity.y = y;
@@ -712,8 +729,14 @@ public final class EntityTracker implements SessionState {
         this.temporaryEntities.put(javaId, TEMPORARY_ORB_TICKS);
     }
 
+    /** Ambient and step sounds the Bedrock client would make itself. */
+    MobSounds mobSounds() {
+        return this.mobSounds;
+    }
+
     @Override
     public void tick() {
+        this.mobSounds.tick();
         if (!this.withEffects.isEmpty()) {
             tickEffects();
         }

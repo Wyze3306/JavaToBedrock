@@ -130,6 +130,21 @@ final class ActorDataTranslator {
             nameChanged |= entity.nameTagAlwaysShow != (alwaysShow == 1);
             entity.nameTagAlwaysShow = alwaysShow == 1;
         }
+        String ambientEvent = data.get(ActorDataTypes.AMBIENT_SOUND_EVENT_NAME);
+        Float ambientInterval = data.get(ActorDataTypes.AMBIENT_SOUND_INTERVAL);
+        Float ambientRange = data.get(ActorDataTypes.AMBIENT_SOUND_INTERVAL_RANGE);
+        if (ambientEvent != null || ambientInterval != null || ambientRange != null) {
+            if (ambientEvent != null) {
+                entity.ambientEvent = ambientEvent;
+            }
+            if (ambientInterval != null) {
+                entity.ambientInterval = ambientInterval;
+            }
+            if (ambientRange != null) {
+                entity.ambientRange = ambientRange;
+            }
+            tracker.mobSounds().onAmbientData(entity);
+        }
         Float scale = data.get(ActorDataTypes.SCALE);
         boolean scaleChanged = scale != null && scale != entity.scale;
         if (scaleChanged) {
