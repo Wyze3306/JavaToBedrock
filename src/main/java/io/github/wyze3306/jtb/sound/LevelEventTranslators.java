@@ -238,7 +238,10 @@ public final class LevelEventTranslators {
         return stack == null ? null : new ItemParticleData(new ItemStack(stack.getId(), 1, stack.getDataComponentsPatch()));
     }
 
-    /** Eyeblossom-like trails fly from the emitter to a random point just above it. */
+    /**
+     * Trail templates from the mapping tables (their target is the {@link Vector3d#ZERO} instance) fly from the
+     * emitter to a random point just above it, like the eyeblossom particles.
+     */
     private static @Nullable ParticleData withTrailTarget(@Nullable ParticleData data, Vector3f position) {
         if (data instanceof TrailParticleData trail && trail.target() == Vector3d.ZERO) {
             ThreadLocalRandom random = ThreadLocalRandom.current();
