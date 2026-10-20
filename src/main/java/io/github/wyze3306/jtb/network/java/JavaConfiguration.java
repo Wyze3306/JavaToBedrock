@@ -52,7 +52,7 @@ public final class JavaConfiguration implements SessionState {
 
     public static final StateKey<JavaConfiguration> KEY = StateKey.of("java-configuration", JavaConfiguration::new);
 
-    /** If the Bedrock server never says it is ready, let the player in anyway after this delay. */
+    /** If the Bedrock server never starts the game within this delay, the player is disconnected. */
     private static final long BEDROCK_READY_TIMEOUT_SECONDS = 60;
 
     private final ProxySession session;
@@ -83,9 +83,11 @@ public final class JavaConfiguration implements SessionState {
                 new KnownPack("minecraft", "core", JavaServer.javaVersionName()))));
         this.readyTimeout = this.session.schedule(() -> {
             if (!this.bedrockReady) {
-                this.session.logger().warn("[{}] Bedrock server did not finish the join sequence in {}s, continuing anyway",
+                // Without StartGame there is no Java login packet to send: the client cannot play.
+                this.session.logger().warn("[{}] Bedrock server did not start the game within {}s",
                         this.session.getName(), BEDROCK_READY_TIMEOUT_SECONDS);
-                markBedrockReady();
+                this.session.disconnect(Component.translatable("disconnect.timeout")
+                        .append(Component.text(" (serveur Bedrock)")));
             }
         }, BEDROCK_READY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
@@ -258,9 +260,13 @@ public final class JavaConfiguration implements SessionState {
         this.session.enterConfiguration();
         this.session.get(JavaKeepAlive.KEY).setPaused(true);
         MinecraftProtocol protocol = (MinecraftProtocol) this.session.javaSession().getPacketProtocol();
-        // The outbound state must change right after this packet is written, before anything else.
-        this.session.javaSession().send(new ClientboundStartConfigurationPacket(),
-                () -> protocol.setOutboundState(ProtocolState.CONFIGURATION));
+        // The outbound state must change right after this packet is encoded and before any other packet:
+        // on the channel's event loop the write encodes synchronously, so nothing can slip in between.
+        var channel = this.session.javaSession().getChannel();
+        channel.eventLoop().execute(() -> {
+            this.session.javaSession().send(new ClientboundStartConfigurationPacket());
+            protocol.setOutboundState(ProtocolState.CONFIGURATION);
+        });
     }
 
     /**

@@ -48,7 +48,7 @@ public final class ProxySession {
     private final Session javaSession;
     private final GameProfile profile;
     private final EventLoop eventLoop;
-    private final Object[] states = new Object[Math.max(64, StateKey.count() + 16)];
+    private Object[] states = new Object[Math.max(64, StateKey.count() + 16)];
     private final ArrayDeque<Packet> pendingGamePackets = new ArrayDeque<>();
 
     private @Nullable BedrockClientSession bedrockSession;
@@ -115,6 +115,10 @@ public final class ProxySession {
      */
     @SuppressWarnings("unchecked")
     public <T extends SessionState> T get(StateKey<T> key) {
+        if (key.index() >= this.states.length) {
+            // A state class loaded after this session was created: its key index is new.
+            this.states = Arrays.copyOf(this.states, Math.max(key.index() + 16, this.states.length * 2));
+        }
         Object state = this.states[key.index()];
         if (state == null) {
             state = key.create(this);
@@ -128,7 +132,7 @@ public final class ProxySession {
      */
     @SuppressWarnings("unchecked")
     public <T extends SessionState> @Nullable T getIfPresent(StateKey<T> key) {
-        return (T) this.states[key.index()];
+        return key.index() < this.states.length ? (T) this.states[key.index()] : null;
     }
 
     // ------------------------------------------------------------------ threading

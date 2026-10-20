@@ -11,6 +11,7 @@ import org.geysermc.mcprotocollib.network.compression.CompressionConfig;
 import org.geysermc.mcprotocollib.network.compression.ZlibCompression;
 import org.geysermc.mcprotocollib.network.event.session.DisconnectedEvent;
 import org.geysermc.mcprotocollib.network.event.session.DisconnectingEvent;
+import org.geysermc.mcprotocollib.network.event.session.PacketErrorEvent;
 import org.geysermc.mcprotocollib.network.event.session.SessionAdapter;
 import org.geysermc.mcprotocollib.network.packet.Packet;
 import org.geysermc.mcprotocollib.protocol.MinecraftConstants;
@@ -280,6 +281,15 @@ final class JavaConnectionListener extends SessionAdapter {
                 LOGGER.info("[{}] Unhandled Java packet {}", proxySession.getName(), packet);
             }
         });
+    }
+
+    @Override
+    public void packetError(PacketErrorEvent event) {
+        // Logged here, the session is still closed by MCProtocolLib (an undecodable stream cannot recover).
+        ProxySession proxySession = this.proxySession;
+        LOGGER.warn("[{}] Java packet error ({}): {}", proxySession == null ? "?" : proxySession.getName(),
+                event.getPacketClass() == null ? "unknown packet" : event.getPacketClass().getSimpleName(),
+                event.getCause().toString(), event.getCause());
     }
 
     // ------------------------------------------------------------------ disconnect
