@@ -1,6 +1,7 @@
 package io.github.wyze3306.jtb.item;
 
 import io.github.wyze3306.jtb.mapping.JavaRegistries;
+import io.github.wyze3306.jtb.resourcepack.ConversionArtifacts;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.cloudburstmc.nbt.NbtMap;
@@ -152,15 +153,18 @@ class ItemTranslatorTest {
 
     @Test
     void customItems() {
-        assertEquals(Key.key("jtb", "mymod/ruby_sword"), CustomItems.modelKey("mymod:ruby_sword"));
-        assertEquals(Key.key("jtb", "my_mod/ruby_sword_2"), CustomItems.modelKey("My Mod:Ruby Sword#2"));
-        assertEquals(Key.key("jtb", "minecraft/thing"), CustomItems.modelKey("thing"));
+        ConversionArtifacts artifacts = new ConversionArtifacts();
+        artifacts.itemModels().put("mymod:ruby_sword", "jtb:item/mymod/ruby_sword");
+        assertEquals(Key.key("jtb", "item/mymod/ruby_sword"), ItemTranslator.customModel(artifacts, "mymod:ruby_sword"));
+        assertNull(ItemTranslator.customModel(artifacts, "mymod:other"));
+        assertNull(ItemTranslator.customModel((ConversionArtifacts) null, "mymod:ruby_sword"));
 
         ItemStack java = ItemTranslator.toJava(test.session(), test.item("mymod:ruby_sword", 1));
         assertNotNull(java);
         assertEquals(ItemMappings.get().javaId("paper"), java.getId());
         DataComponents components = java.getDataComponentsPatch();
-        assertEquals(Key.key("jtb", "mymod/ruby_sword"), components.get(DataComponentTypes.ITEM_MODEL));
+        // No converted pack in this session: the base item's own look.
+        assertNull(components.get(DataComponentTypes.ITEM_MODEL));
         assertEquals("Ruby Sword", plain(components.get(DataComponentTypes.ITEM_NAME)));
         // Damageable: Java requires a stack size of 1.
         assertEquals(1, components.get(DataComponentTypes.MAX_STACK_SIZE));

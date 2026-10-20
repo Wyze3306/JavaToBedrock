@@ -61,7 +61,6 @@ joins, acknowledges teleports and runs a scenario (`e2e/scenario/*Scenario`, cho
 | `entity.EntityTracker` | entity | player, ui, sound |
 | `inventory.InventoryState` | inventory | player |
 | `item.ItemTranslator`, `item.ItemRegistry` | inventory | entity (equipment, item entities), ui |
-| `item.CustomItems.modelKey` (Java `item_model` of custom items) | inventory | resourcepack |
 | `text.TextTranslator`, `text.BedrockLang` | chat | all |
 | `network.java.JavaConfiguration` | core | world (registries, ready), resourcepack |
 
@@ -83,12 +82,12 @@ The join translator (world) calls, in order: `BlockMapper.onStartGame`, `EntityT
   back to the mapping tables for stacks without it (Java creative tabs). Stacks nested in another item
   (container contents, charged projectiles) are display-only and carry no identity.
 - **Custom (component-based) items** are shown as a vanilla base item (`paper`; `bow` for shooters, `snowball`
-  for throwables) with `item_name`, `max_stack_size`, `max_damage`, `food` + `consumable`, `equippable`,
-  `tool`, `use_cooldown`, glint, and **`item_model` = `jtb:<namespace>/<path>`**: the Bedrock identifier
-  lower-cased, every character outside `[a-z0-9_.-]` replaced by `_` (`MyMod:Ruby Sword` ->
-  `jtb:mymod/ruby_sword`; no namespace -> `minecraft`). Always build it with
-  `item.CustomItems.modelKey(identifier)`. The converted resource pack provides the item model definition
-  `assets/jtb/items/<namespace>/<path>.json`.
+  for throwables) with `item_name` (Bedrock name key through `BedrockLang`, or `minecraft:display_name`),
+  `max_stack_size`, `max_damage`, `food` + `consumable`, `equippable`, `tool`, `use_cooldown` and glint, plus
+  the **`item_model`** the converted resource pack made for the item (`ConversionArtifacts.itemModels()`,
+  named `jtb:item/<namespace>/<path>` by the resourcepack subsystem), added per stack by
+  `ItemTranslator.customModel` only when the client has the pack: without it the base item keeps its own
+  look instead of a missing model.
 - **Map items.** `ItemRegistry.javaMapId(bedrockMapUuid)` allocates the Java map id of a Bedrock map uuid;
   the ui module uses the same method for `ClientboundMapItemData`.
 - **Hooks for other modules.** After sending `ClientboundRespawn` (death, dimension change) the Java client

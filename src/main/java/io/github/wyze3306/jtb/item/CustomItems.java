@@ -25,13 +25,10 @@ import java.util.Locale;
 /**
  * Custom (component based) items of the server, i.e. identifiers that are not vanilla Bedrock items,
  * as Java items: a vanilla base item chosen from the item's behaviour plus components that describe
- * it ({@code item_model}, {@code item_name}, stack size, durability, food, equipment, tool).
+ * it ({@code item_name}, stack size, durability, food, equipment, tool, cooldown, glint).
  * <p>
- * <b>Model naming convention</b> (shared with the resource pack converter): the Java item model of
- * the Bedrock item {@code <namespace>:<path>} is {@code jtb:<namespace>/<path>}, both parts lower
- * case with every character outside {@code [a-z0-9_.-]} replaced by {@code _} (and {@code /} kept in
- * the path), i.e. the item model definition {@code assets/jtb/items/<namespace>/<path>.json}. Use
- * {@link #modelKey(String)} rather than rebuilding the name.
+ * The {@code item_model} is not part of it: it comes from the converted resource pack when the client
+ * loaded it (see {@link ItemTranslator#customModel}), so it is added per stack.
  */
 public final class CustomItems {
 
@@ -40,14 +37,6 @@ public final class CustomItems {
     }
 
     private CustomItems() {
-    }
-
-    /** Java item model of a custom Bedrock item; see the class documentation for the naming rule. */
-    public static Key modelKey(String bedrockIdentifier) {
-        int colon = bedrockIdentifier.indexOf(':');
-        String namespace = colon < 0 ? "minecraft" : bedrockIdentifier.substring(0, colon);
-        String path = colon < 0 ? bedrockIdentifier : bedrockIdentifier.substring(colon + 1);
-        return Key.key("jtb", sanitize(namespace, false) + "/" + sanitize(path, true));
     }
 
     private static String sanitize(String part, boolean allowSlash) {
@@ -74,7 +63,6 @@ public final class CustomItems {
         ItemMappings mappings = ItemMappings.get();
 
         DataComponents out = new DataComponents(new HashMap<>());
-        out.put(DataComponentTypes.ITEM_MODEL, modelKey(identifier));
         out.put(DataComponentTypes.ITEM_NAME, name(identifier, components, lang));
 
         int maxDamage = num(components.getCompound("minecraft:durability", NbtMap.EMPTY), "max_durability", 0).intValue();

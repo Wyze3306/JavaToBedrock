@@ -1,6 +1,8 @@
 package io.github.wyze3306.jtb.item;
 
 import io.github.wyze3306.jtb.mapping.JavaRegistries;
+import io.github.wyze3306.jtb.resourcepack.ConversionArtifacts;
+import io.github.wyze3306.jtb.resourcepack.ResourcePackState;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.text.BedrockLang;
 import io.github.wyze3306.jtb.text.BedrockText;
@@ -110,6 +112,10 @@ public final class ItemTranslator {
             javaId = custom.baseJavaId();
             maxDamage = custom.maxDamage();
             components = custom.components().clone();
+            Key model = customModel(session, identifier);
+            if (model != null) {
+                components.put(DataComponentTypes.ITEM_MODEL, model);
+            }
         }
         NbtMap tag = item.getTag();
         if (tag != null && !tag.isEmpty()) {
@@ -127,6 +133,21 @@ public final class ItemTranslator {
         }
         return new ItemStack(javaId, Math.clamp(item.getCount(), 1, 99),
                 components.getDataComponents().isEmpty() ? null : components);
+    }
+
+    /**
+     * The {@code item_model} of a custom item: the model the converted resource pack made for it
+     * ({@code jtb:item/<namespace>/<path>}), or null when the client has no such pack (declined,
+     * failed, or no model for this item): the base item's vanilla look is shown then.
+     */
+    public static @Nullable Key customModel(ProxySession session, String identifier) {
+        ResourcePackState pack = session.getIfPresent(ResourcePackState.KEY);
+        return customModel(pack == null ? null : pack.artifacts(), identifier);
+    }
+
+    static @Nullable Key customModel(@Nullable ConversionArtifacts artifacts, String identifier) {
+        String model = artifacts == null ? null : artifacts.itemModels().get(identifier);
+        return model == null || !Key.parseable(model) ? null : Key.key(model);
     }
 
     private static void applyMapping(ProxySession session, ItemMappings.Mapping mapping, DataComponents components) {
