@@ -40,6 +40,8 @@ public final class ChatScenario implements E2eScenario {
     private static final int CHAT_FLOOD = 5;
     private static final int COMMAND_FLOOD = 12;
 
+    /** The test player, as the harness names it ({@code -Dname}). */
+    private final String player = System.getProperty("name", "JtbTester");
     private final String nonce = Integer.toString(ThreadLocalRandom.current().nextInt(100_000, 999_999));
     private final List<Line> lines = new CopyOnWriteArrayList<>();
     private final Map<Integer, ClientboundCommandSuggestionsPacket> suggestions = new ConcurrentHashMap<>();
@@ -76,7 +78,7 @@ public final class ChatScenario implements E2eScenario {
             case 40 -> command(context, "list");
             case 50 -> {
                 context.send(new ServerboundCommandSuggestionPacket(42, "/tp Tes"));
-                context.send(new ServerboundCommandSuggestionPacket(43, "/give Tester5 minecraft:diamon"));
+                context.send(new ServerboundCommandSuggestionPacket(43, "/give " + this.player + " minecraft:diamon"));
                 context.send(new ServerboundCommandSuggestionPacket(44, "/gamemode creative "));
             }
             case 60 -> command(context, "give @s minecraft:diamond 3");
@@ -147,13 +149,13 @@ public final class ChatScenario implements E2eScenario {
 
         // Checks match content rather than arrival windows: a busy server answers late.
         List<String> all = since(0);
-        context.check("chat round trip (<Tester5> message)", all.stream().anyMatch(l -> l.contains("Tester5") && l.contains("Bonjour JTB " + this.nonce)));
+        context.check("chat round trip (<player> message)", all.stream().anyMatch(l -> l.contains(this.player) && l.contains("Bonjour JTB " + this.nonce)));
         context.check("no untranslated %key in chat", all.stream().noneMatch(l -> l.matches(".*%[a-z]+\\.[a-z.]+.*")));
         context.check("/help output translated", all.stream().anyMatch(l -> l.contains("/help") && l.contains("---")));
         long listAnswers = all.stream().filter(l -> l.matches(".*\\d+/\\d+.*")).count();
-        context.check("/list output", listAnswers >= 1 && all.contains("Tester5"));
+        context.check("/list output", listAnswers >= 1 && all.contains(this.player));
         context.check("/give command output (CommandOutput)", all.stream()
-                .anyMatch(l -> l.contains("Tester5") && l.contains("3") && !l.startsWith("<") && !l.equals("Tester5")));
+                .anyMatch(l -> l.contains(this.player) && l.contains("3") && !l.startsWith("<") && !l.equals(this.player)));
         boolean redError = false;
         for (int i = Math.max(0, this.errorFrom); i < this.lines.size(); i++) {
             if (!this.lines.get(i).text().isEmpty() && isRed(this.lines.get(i).component())) {
@@ -164,7 +166,7 @@ public final class ChatScenario implements E2eScenario {
         context.check("/jtb version answered by the proxy", all.stream().anyMatch(l -> l.startsWith("JavaToBedrock")));
 
         ClientboundCommandSuggestionsPacket players = this.suggestions.get(42);
-        context.check("tab completion of a player name", players != null && Arrays.asList(players.getMatches()).contains("Tester5")
+        context.check("tab completion of a player name", players != null && Arrays.asList(players.getMatches()).contains(this.player)
                 && players.getStart() == 4);
         ClientboundCommandSuggestionsPacket items = this.suggestions.get(43);
         context.check("tab completion of an item", items != null && Arrays.asList(items.getMatches()).contains("minecraft:diamond"));

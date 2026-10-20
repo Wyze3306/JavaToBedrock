@@ -73,4 +73,9 @@ java -cp "$CP" -Dhost=127.0.0.1 -Dport=$JAVA_PORT -Dname=Tester -Dseconds="$SECO
 status=$?
 grep -E "^\[client\] (CHECK|Checks passed|JOIN|Disconnect)" "$OUT/client.log"
 echo "== proxy warnings"; grep -E "WARN|ERROR" "$OUT/proxy.log" | sort | uniq -c | sort -rn | head -20
+if [ "$status" -ne 0 ]; then
+  # What the scenario logged (without the packet counts), for a CI run whose logs cannot be downloaded.
+  echo "== scenario log"; grep -E "^\[client\] " "$OUT/client.log" | grep -vE "^\[client\] +[0-9]+ +[A-Z]" | tail -150
+  echo "== PowerNukkitX errors"; grep -E "ERROR|Exception" "$OUT/pnx.log" | sort | uniq -c | sort -rn | head -20
+fi
 exit $status
