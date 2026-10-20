@@ -1,0 +1,83 @@
+# ===========================================================================
+#  JavaToBedrock - configuration
+#  Permet aux joueurs Minecraft Java Edition 26.3 de rejoindre un serveur
+#  Bedrock (PowerNukkitX, BDS...).
+# ===========================================================================
+
+# --- Côté Java : là où les joueurs Java se connectent -----------------------
+java:
+  # Adresse et port d'écoute TCP pour les clients Java.
+  bind: 0.0.0.0
+  port: 25565
+  # true = vérifie les comptes Java auprès de Mojang (recommandé).
+  # false = mode hors-ligne (n'importe quel pseudo).
+  online-mode: true
+  # Seuil de compression des paquets Java (octets). -1 = désactivé.
+  compression-threshold: 256
+  # MOTD affiché dans la liste des serveurs Java. Vide = reprend le MOTD du serveur Bedrock.
+  motd: ""
+  # Nombre maximum de joueurs affiché. -1 = reprend la valeur du serveur Bedrock.
+  max-players: -1
+
+# --- Côté Bedrock : le serveur cible ------------------------------------------
+bedrock:
+  address: 127.0.0.1
+  port: 19132
+  # Méthode d'authentification auprès du serveur Bedrock :
+  #   offline   : identité auto-signée (le serveur doit avoir xbox-auth=false)
+  #   microsoft : chaque joueur Java se connecte une fois à son compte Microsoft
+  #               (un code s'affiche en jeu) ; fonctionne sur tous les serveurs
+  #   trusted   : le proxy signe l'identité Java vérifiée par Mojang ; le serveur
+  #               PowerNukkitX vérifie la signature (section java-bridge de pnx.yml)
+  auth: offline
+  # Clé privée du proxy pour le mode "trusted" (générée au premier démarrage).
+  # Copiez la clé publique affichée au démarrage dans pnx.yml (java-bridge.proxy-public-key).
+  trusted-key-file: jtb-proxy-key.pem
+  # Préfixe ajouté au pseudo Bedrock des joueurs Java (ex: "." pour éviter les doublons).
+  username-prefix: ""
+  # Délai de connexion au serveur Bedrock (secondes).
+  connect-timeout: 10
+  # Langue envoyée au serveur Bedrock si le client Java n'en a pas encore donné.
+  default-language: fr_FR
+
+# --- Packs de ressources ------------------------------------------------------
+resource-packs:
+  # Convertit les packs Bedrock du serveur en pack Java et l'envoie aux joueurs.
+  enabled: true
+  # Serveur HTTP intégré qui sert le pack converti.
+  http-bind: 0.0.0.0
+  http-port: 8765
+  # URL publique du serveur HTTP vue par les joueurs. Vide = déduite automatiquement
+  # de l'adresse utilisée par le joueur pour se connecter.
+  public-url: ""
+  # Le joueur doit accepter le pack pour jouer.
+  required: true
+  prompt: "Ce serveur Bedrock utilise un pack de ressources converti pour Java."
+  # Dossier de cache des packs téléchargés et convertis.
+  cache-directory: cache/packs
+
+# --- Monde ----------------------------------------------------------------------
+world:
+  # Distance de vue maximale demandée au serveur Bedrock (chunks).
+  max-view-distance: 16
+  # Éclairage envoyé au client Java : "compute" (calculé par le proxy) ou "full-bright".
+  lighting: compute
+  # Nombre de threads de conversion des chunks (0 = automatique).
+  chunk-threads: 0
+
+# --- Fonctionnalités ------------------------------------------------------------
+features:
+  # Affiche les formulaires Bedrock avec les dialogues natifs de Java 26.3.
+  forms: true
+  # Affiche les blocs custom avec des états de blocs Java re-texturés.
+  custom-blocks: true
+  # Affiche les entités custom avec des modèles convertis (item_display).
+  custom-entities: true
+  # Envoie le skin Java du joueur au serveur Bedrock.
+  java-skins: true
+
+# --- Débogage ---------------------------------------------------------------------
+debug:
+  # Journalise les paquets Bedrock / Java qui n'ont pas de traducteur.
+  log-unhandled-bedrock: false
+  log-unhandled-java: false
