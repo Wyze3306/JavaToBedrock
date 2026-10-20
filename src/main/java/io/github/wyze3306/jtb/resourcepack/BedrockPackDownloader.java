@@ -1,6 +1,5 @@
 package io.github.wyze3306.jtb.resourcepack;
 
-import io.github.wyze3306.jtb.network.java.JavaConfiguration;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
 import io.github.wyze3306.jtb.session.StateKey;
@@ -29,7 +28,7 @@ import java.util.UUID;
 /**
  * Bedrock side of resource packs: downloads every pack the server offers (from the local cache,
  * the server's CDN URL, or chunk by chunk over the protocol), then hands the final pack stack to
- * the {@link JavaPackService} for conversion while the Java client waits in its configuration phase.
+ * {@link ResourcePackState} for conversion while the Java client waits in its configuration phase.
  * <p>
  * Chunks are requested with a small window so a pack downloads at full speed without flooding the
  * server. Downloaded packs are verified (SHA-256 from {@code ResourcePackDataInfo}) and cached on
@@ -64,8 +63,20 @@ public final class BedrockPackDownloader implements SessionState {
         Download(ResourcePackDataInfoPacket info) {
             this.info = info;
             this.data = new byte[(int) info.getFileSize()];
-            this.received = new boolean[(int) info.getNumberOfChunks()];
+            this.received = new boolean[chunkCount(info)];
         }
+    }
+
+    /**
+     * Number of chunks of a pack. The announced count is ignored by the Bedrock client, which derives
+     * it from the file and chunk sizes (ViaBedrock does the same); a server announcing another count
+     * would otherwise leave the download hanging or request chunks that do not exist.
+     */
+    static int chunkCount(ResourcePackDataInfoPacket info) {
+        if (info.getChunkSize() > 0) {
+            return (int) ((info.getFileSize() + info.getChunkSize() - 1) / info.getChunkSize());
+        }
+        return (int) info.getNumberOfChunks();
     }
 
     public void handle(BedrockPacket packet) {
@@ -95,7 +106,8 @@ public final class BedrockPackDownloader implements SessionState {
             }
             byte[] cached = cache.readBedrockPack(id, version, pack.getPackSize());
             if (cached != null) {
-                this.packs.put(id, new BedrockPack(id, version, pack.getContentKey(), pack.getSubpackName(), cached));
+                this.packs.put(id, new BedrockPack(id, version, pack.getContentKey(), pack.getContentIdentity(),
+                        pack.getSubpackName(), cached));
             } else if (pack.getCdnUrl() != null && !pack.getCdnUrl().isEmpty()) {
                 downloadFromCdn(pack);
             } else {
@@ -129,7 +141,8 @@ public final class BedrockPackDownloader implements SessionState {
                         error == null ? "empty" : error.toString());
             } else {
                 cache.writeBedrockPack(id, version, bytes);
-                this.packs.put(id, new BedrockPack(id, version, pack.getContentKey(), pack.getSubpackName(), bytes));
+                this.packs.put(id, new BedrockPack(id, version, pack.getContentKey(), pack.getContentIdentity(),
+                        pack.getSubpackName(), bytes));
             }
             maybeFinish();
         }));
@@ -138,7 +151,7 @@ public final class BedrockPackDownloader implements SessionState {
     // ------------------------------------------------------------------ protocol download
 
     private void onDataInfo(ResourcePackDataInfoPacket info) {
-        if (info.getFileSize() <= 0 || info.getFileSize() > Integer.MAX_VALUE - 16 || info.getNumberOfChunks() <= 0) {
+        if (info.getFileSize() <= 0 || info.getFileSize() > Integer.MAX_VALUE - 16 || chunkCount(info) <= 0) {
             this.session.logger().warn("[{}] Ignoring pack {} with invalid size", this.session.getName(), info.getPackId());
             return;
         }
@@ -192,7 +205,7 @@ public final class BedrockPackDownloader implements SessionState {
             String version = download.info.getPackVersion();
             this.session.proxy().service(JavaPackService.class).cache().writeBedrockPack(id, version, download.data);
             this.packs.put(id, new BedrockPack(id, version, info == null ? "" : info.getContentKey(),
-                    info == null ? "" : info.getSubpackName(), download.data));
+                    info == null ? "" : info.getContentIdentity(), info == null ? "" : info.getSubpackName(), download.data));
         }
         maybeFinish();
     }
@@ -223,9 +236,11 @@ public final class BedrockPackDownloader implements SessionState {
                 ordered.add(pack.withSubpack(instance.getSubPackName()));
             }
         }
-        // Packs that were offered but not listed in the stack still apply (behaviour packs never do).
-        for (BedrockPack pack : this.packs.values()) {
-            if (ordered.stream().noneMatch(p -> p.id().equals(pack.id()))) {
+        // Packs that were offered but not listed in the stack still apply, below the listed ones, in
+        // the order the server offered them (behaviour packs are skipped by the converter).
+        for (UUID id : this.offered.keySet()) {
+            BedrockPack pack = this.packs.get(id);
+            if (pack != null && ordered.stream().noneMatch(p -> p.id().equals(id))) {
                 ordered.add(pack);
             }
         }
@@ -234,23 +249,7 @@ public final class BedrockPackDownloader implements SessionState {
         response.setResponse(ResourcePackResponse.RESOURCE_PACK_STACK_FINISHED);
         this.session.sendBedrockImmediately(response);
 
-        if (ordered.isEmpty() || !this.session.config().resourcePacks().enabled()) {
-            return;
-        }
-        JavaConfiguration configuration = this.session.get(JavaConfiguration.KEY);
-        configuration.holdForResourcePacks();
-        this.session.proxy().service(JavaPackService.class).prepare(this.session, ordered)
-                .whenComplete((pack, error) -> this.session.execute(() -> {
-                    try {
-                        if (error != null) {
-                            this.session.logger().error("[{}] Resource pack conversion failed", this.session.getName(), error);
-                        } else if (pack != null) {
-                            this.session.get(ResourcePackState.KEY).apply(pack);
-                        }
-                    } finally {
-                        configuration.releaseResourcePacks();
-                    }
-                }));
+        this.session.get(ResourcePackState.KEY).onStack(ordered);
     }
 
     private @Nullable BedrockPack findPack(String id) {
@@ -261,7 +260,7 @@ public final class BedrockPackDownloader implements SessionState {
         }
     }
 
-    /** Packs downloaded for this session, in server stack order once the stack arrived. */
+    /** Packs downloaded for this session, by id. */
     public Map<UUID, BedrockPack> packs() {
         return this.packs;
     }
