@@ -9,7 +9,11 @@ import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.geysermc.mcprotocollib.network.packet.Packet;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.GameMode;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
+import org.geysermc.mcprotocollib.protocol.data.game.level.notify.GameEvent;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.ClientboundLoginPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundGameEventPacket;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerAction;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerActionType;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerType;
@@ -27,12 +31,15 @@ import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.Serverbound
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.inventory.ServerboundContainerClickPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.inventory.ServerboundContainerClosePacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.ServerboundUseItemOnPacket;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
+import java.util.function.IntSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -46,13 +53,22 @@ abstract class InventoryScript implements E2eScenario {
 
     private static final Pattern COUNT = Pattern.compile("(\\d+)");
 
-    /** One scripted step: an action, then how many ticks to wait before the next one. */
-    private record Step(String name, int delay, Runnable action) {
+    /** Ticks an expectation may wait for the server's answer (PowerNukkitX may tick a busy world once a second). */
+    private static final int EXPECT_TIMEOUT = 120;
+
+    /**
+     * One scripted step: an action, then how many ticks to wait before the next one; or, when
+     * {@code condition} is set, an expectation polled every tick until it holds or times out.
+     */
+    private record Step(String name, int delay, Runnable action, @Nullable BooleanSupplier condition) {
     }
+
+
 
     private final List<Step> steps = new ArrayList<>();
     private int stepIndex;
     private int nextStepTick = 60;
+    private int expectStart = -1;
 
     private final Map<Integer, ItemStack[]> containers = new HashMap<>();
     private final Map<Integer, Integer> stateIds = new HashMap<>();
@@ -64,6 +80,7 @@ abstract class InventoryScript implements E2eScenario {
     protected volatile int playerContents;
     protected volatile int slotsBeforeContent;
     protected volatile ClientboundUpdateRecipesPacket recipes;
+    protected volatile GameMode gameMode;
 
     protected ClientContext context;
     protected String name = "Tester";
@@ -124,6 +141,10 @@ abstract class InventoryScript implements E2eScenario {
             }
         } else if (packet instanceof ClientboundUpdateRecipesPacket update) {
             this.recipes = update;
+        } else if (packet instanceof ClientboundGameEventPacket event && event.getNotification() == GameEvent.CHANGE_GAME_MODE) {
+            this.gameMode = (GameMode) event.getValue();
+        } else if (packet instanceof ClientboundLoginPacket login) {
+            this.gameMode = login.getCommonPlayerSpawnInfo().getGameMode();
         }
     }
 
@@ -144,6 +165,11 @@ abstract class InventoryScript implements E2eScenario {
             // And a floor: anvils fall and grindstones break without support.
             command("fill " + (this.feet.getX() - 4) + " " + (this.feet.getY() - 1) + " " + (this.feet.getZ() - 4) + " "
                     + (this.feet.getX() + 4) + " " + (this.feet.getY() - 1) + " " + (this.feet.getZ() + 4) + " stone");
+            // Monsters of the live world must not kill the tester (an invulnerable resistance level rather
+            // than a peaceful difficulty, which PowerNukkitX would save in the server settings), and items
+            // dropped by the blocks the fill removed (containers of an earlier run) must not be picked up.
+            command("effect " + this.name + " resistance 1000 255 true");
+            command("kill @e[type=item]");
             command("gamemode survival " + this.name);
             command("clear " + this.name);
         });
@@ -153,15 +179,36 @@ abstract class InventoryScript implements E2eScenario {
     @Override
     public void tick(ClientContext context, int tick) {
         context.send(ServerboundClientTickEndPacket.INSTANCE);
-        if (tick >= this.nextStepTick && this.stepIndex < this.steps.size()) {
-            Step step = this.steps.get(this.stepIndex++);
-            try {
-                step.action().run();
-            } catch (RuntimeException e) {
-                check("step '" + step.name() + "' ran (" + e + ")", false);
-            }
-            this.nextStepTick = tick + step.delay();
+        if (tick < this.nextStepTick || this.stepIndex >= this.steps.size()) {
+            return;
         }
+        Step step = this.steps.get(this.stepIndex);
+        if (step.condition() != null) {
+            if (this.expectStart < 0) {
+                this.expectStart = tick;
+            }
+            boolean ok;
+            try {
+                ok = step.condition().getAsBoolean();
+            } catch (RuntimeException e) {
+                ok = false;
+            }
+            if (!ok && tick - this.expectStart < (step.delay() > 0 ? step.delay() : EXPECT_TIMEOUT)) {
+                return;
+            }
+            check(step.name(), ok);
+            this.expectStart = -1;
+            this.stepIndex++;
+            this.nextStepTick = tick + 1;
+            return;
+        }
+        this.stepIndex++;
+        try {
+            step.action().run();
+        } catch (RuntimeException e) {
+            check("step '" + step.name() + "' ran (" + e + ")", false);
+        }
+        this.nextStepTick = tick + step.delay();
     }
 
     @Override
@@ -171,26 +218,45 @@ abstract class InventoryScript implements E2eScenario {
     }
 
     protected void step(String name, int delay, Runnable action) {
-        this.steps.add(new Step(name, delay, action));
+        this.steps.add(new Step(name, delay, action, null));
+    }
+
+    /** A check that waits (up to {@value #EXPECT_TIMEOUT} ticks) for the condition to hold. */
+    protected void expect(String name, BooleanSupplier condition) {
+        expect(name, EXPECT_TIMEOUT, condition);
+    }
+
+    /** A check that waits up to {@code timeout} ticks for the condition to hold. */
+    protected void expect(String name, int timeout, BooleanSupplier condition) {
+        this.steps.add(new Step(name, timeout, () -> { }, condition));
     }
 
     /** Asks the server how many {@code item} the player has, and checks the answer. */
     protected void serverCount(String item, int expected) {
-        step("count " + item, 30, () -> {
+        serverCount("server has " + expected + " " + item, item, () -> expected);
+    }
+
+    /** {@link #serverCount(String, int)} with a count known only when the step runs. */
+    protected void serverCount(String item, IntSupplier expectedCount) {
+        serverCount("server count of " + item, item, expectedCount);
+    }
+
+    private void serverCount(String label, String item, IntSupplier expectedCount) {
+        step("count " + item, 2, () -> {
             this.chatMark = this.context.chat().size();
             command("clear " + this.name + " " + item + " 0 0");
         });
-        step("check count " + item, 1, () -> {
-            List<String> lines = this.context.chat().subList(this.chatMark, this.context.chat().size());
-            int count = expected == 0 ? -1 : -2;
-            for (String line : lines) {
+        expect(label, () -> {
+            int expected = expectedCount.getAsInt();
+            int count = Integer.MIN_VALUE;
+            for (String line : this.context.chat().subList(this.chatMark, this.context.chat().size())) {
                 if (line.contains(this.name)) {
+                    // "<player> has N items..." or "Could not clear the inventory of <player>, no items..."
                     Matcher matcher = COUNT.matcher(line.substring(line.indexOf(this.name) + this.name.length()));
                     count = matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
                 }
             }
-            this.context.log("Server count of " + item + ": " + lines);
-            check("server has " + expected + " " + item, count == expected || (expected == 0 && count <= 0));
+            return count == expected;
         });
     }
 

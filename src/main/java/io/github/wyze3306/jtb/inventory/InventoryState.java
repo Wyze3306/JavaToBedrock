@@ -764,6 +764,10 @@ public final class InventoryState implements SessionState {
             int id = response.getClientRequestId() == null ? 0 : response.getClientRequestId().getID();
             Pending request = this.pending.remove(id);
             boolean success = response.getResult() == ItemStackNetResult.SUCCESS;
+            if (request != null && this.session.logger().isTraceEnabled()) {
+                this.session.logger().trace("[{}] Item stack request {} {} after {} ticks", this.session.getName(), id,
+                        response.getResult(), this.session.tickCount() - request.batch().tick);
+            }
             if (request != null && success) {
                 for (Transaction.Change change : request.planned().changes()) {
                     change.slot().container().set(change.slot().index(), change.item());

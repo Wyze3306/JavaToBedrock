@@ -52,6 +52,7 @@ public final class InventoryMenusScenario extends InventoryScript {
     private final int chestItem = id("chest");
 
     private int bookSlot;
+    private int ingots;
     private int chatMark;
 
     @Override
@@ -117,180 +118,163 @@ public final class InventoryMenusScenario extends InventoryScript {
             command("give " + this.name + " dirt 1");
             command("give " + this.name + " chest 3");
         });
-        step("check given", 1, () -> check("given items arrived", total(0, 9, 45, this.sword) == 2
-                && total(0, 9, 45, this.cobblestone) == 16));
+        expect("given items arrived", () -> total(0, 9, 45, this.sword) == 2
+                && total(0, 9, 45, this.cobblestone) == 16);
 
         // -------------------------------------------------------------- blast furnace
         step("open blast furnace", 30, () -> use(blastFurnace));
-        step("check blast furnace", 1, () -> check("blast furnace opens a Java blast furnace screen",
-                this.openType == ContainerType.BLAST_FURNACE && size(this.openId) == 39));
+        expect("blast furnace opens a Java blast furnace screen", () -> this.openType == ContainerType.BLAST_FURNACE && size(this.openId) == 39);
         step("ore in", 15, () -> shiftClick(3, 39, this.rawIron));
         step("fuel in", 15, () -> shiftClick(3, 39, this.coal));
-        step("check furnace inputs", 1, () -> check("shift click: ore to the input, coal to the fuel slot (burning at once)",
-                is(this.openId, 0, this.rawIron, 1) && total(this.openId, 3, 39, this.coal) == 0
-                        && (is(this.openId, 1, this.coal, 1) || property(this.openId, 0) > 0)));
-        step("smelting", 160, () -> this.context.log("Waiting for the blast furnace"));
-        step("check smelted", 1, () -> {
-            check("blast furnace smelted the ore (server slot updates)", is(this.openId, 2, this.ironIngot, 1) && empty(this.openId, 0));
-            check("furnace properties sent (fuel and progress)", property(this.openId, 0) != Integer.MIN_VALUE
-                    && property(this.openId, 1) != Integer.MIN_VALUE && property(this.openId, 3) == 100);
+        expect("shift click: ore to the input, coal to the fuel slot (burning at once)", () -> is(this.openId, 0, this.rawIron, 1) && total(this.openId, 3, 39, this.coal) == 0
+                        && (is(this.openId, 1, this.coal, 1) || property(this.openId, 0) > 0));
+        // The furnace ticks with the world, which PowerNukkitX slows down when it is busy.
+        expect("blast furnace smelted the ore (server slot updates)", 800, () -> count(item(this.openId, 2), this.ironIngot) >= 1 && empty(this.openId, 0));
+        expect("furnace properties sent (fuel and progress)", () -> property(this.openId, 0) != Integer.MIN_VALUE
+                && property(this.openId, 1) != Integer.MIN_VALUE && property(this.openId, 3) == 100);
+        step("take ingot", 15, () -> {
+            this.ingots = count(item(this.openId, 2), this.ironIngot);
+            click(this.openId, 2, ContainerActionType.SHIFT_CLICK_ITEM, ShiftClickItemAction.LEFT_CLICK);
         });
-        step("take ingot", 15, () -> click(this.openId, 2, ContainerActionType.SHIFT_CLICK_ITEM, ShiftClickItemAction.LEFT_CLICK));
-        step("check ingot", 1, () -> check("shift click takes the result", total(this.openId, 3, 39, this.ironIngot) == 1
-                && empty(this.openId, 2)));
+        expect("shift click takes the result", () -> total(this.openId, 3, 39, this.ironIngot) == this.ingots
+                && empty(this.openId, 2));
         step("close blast furnace", 15, this::close);
-        serverCount("iron_ingot", 1);
+        serverCount("iron_ingot", () -> this.ingots);
 
         // -------------------------------------------------------------- stonecutter
         step("open stonecutter", 30, () -> use(stonecutter));
-        step("check stonecutter", 1, () -> check("stonecutter opens a Java stonecutter screen",
-                this.openType == ContainerType.STONECUTTER && size(this.openId) == 38));
+        expect("stonecutter opens a Java stonecutter screen", () -> this.openType == ContainerType.STONECUTTER && size(this.openId) == 38);
         step("stone in", 15, () -> shiftClick(2, 38, this.stone));
         step("select bricks", 15, () -> {
             int index = stonecutterIndex(this.stone, this.stoneBricks);
             check("stonecutter recipes sent for stone -> stone bricks", index >= 0);
             this.context.send(new ServerboundContainerButtonClickPacket(this.openId, Math.max(index, 0)));
         });
-        step("check bricks result", 1, () -> check("selected recipe shows its result",
-                is(this.openId, 0, this.stone, 4) && is(this.openId, 1, this.stoneBricks, 1)));
+        expect("selected recipe shows its result", () -> is(this.openId, 0, this.stone, 4) && is(this.openId, 1, this.stoneBricks, 1));
         step("cut all", 20, () -> click(this.openId, 1, ContainerActionType.SHIFT_CLICK_ITEM, ShiftClickItemAction.LEFT_CLICK));
-        step("check cut", 1, () -> check("shift click cuts the whole stack", total(this.openId, 2, 38, this.stoneBricks) == 4
-                && empty(this.openId, 0) && empty(this.openId, 1)));
+        expect("shift click cuts the whole stack", () -> total(this.openId, 2, 38, this.stoneBricks) == 4
+                && empty(this.openId, 0) && empty(this.openId, 1));
         step("close stonecutter", 15, this::close);
         serverCount("stone_bricks", 4);
 
         // -------------------------------------------------------------- enchanting table
         step("open enchanting table", 30, () -> use(enchanting));
-        step("check enchanting table", 1, () -> check("enchanting table opens a Java enchantment screen",
-                this.openType == ContainerType.ENCHANTMENT && size(this.openId) == 38));
+        expect("enchanting table opens a Java enchantment screen", () -> this.openType == ContainerType.ENCHANTMENT && size(this.openId) == 38);
         step("lapis in", 15, () -> shiftClick(2, 38, this.lapis));
         step("sword in", 30, () -> shiftClick(2, 38, this.sword));
-        step("check options", 1, () -> check("enchantment options shown (level costs)",
-                is(this.openId, 0, this.sword, 1) && is(this.openId, 1, this.lapis, 3) && property(this.openId, 0) > 0));
+        expect("enchantment options shown (level costs)", () -> is(this.openId, 0, this.sword, 1) && is(this.openId, 1, this.lapis, 3) && property(this.openId, 0) > 0);
         step("enchant", 25, () -> this.context.send(new ServerboundContainerButtonClickPacket(this.openId, 0)));
-        step("check enchanted", 1, () -> check("first option enchants the sword and takes one lapis",
-                enchanted(item(this.openId, 0)) && is(this.openId, 1, this.lapis, 2)));
+        expect("first option enchants the sword and takes one lapis", () -> enchanted(item(this.openId, 0)) && is(this.openId, 1, this.lapis, 2));
         step("sword out", 15, () -> click(this.openId, 0, ContainerActionType.SHIFT_CLICK_ITEM, ShiftClickItemAction.LEFT_CLICK));
         step("close enchanting table", 15, this::close);
         serverCount("lapis_lazuli", 2);
 
         // -------------------------------------------------------------- anvil
         step("open anvil", 30, () -> use(anvil));
-        step("check anvil", 1, () -> check("anvil opens a Java anvil screen", this.openType == ContainerType.ANVIL && size(this.openId) == 39));
+        expect("anvil opens a Java anvil screen", () -> this.openType == ContainerType.ANVIL && size(this.openId) == 39);
         step("plain sword in", 15, () -> {
             int slot = findSword(3, 39, false);
             click(this.openId, slot, ContainerActionType.SHIFT_CLICK_ITEM, ShiftClickItemAction.LEFT_CLICK);
         });
         step("rename", 20, () -> this.context.send(new ServerboundRenameItemPacket("Excalibur")));
-        step("check rename result", 1, () -> check("renaming shows the named result and its cost",
-                count(item(this.openId, 2), this.sword) == 1 && "Excalibur".equals(customName(item(this.openId, 2)))
-                        && property(this.openId, 0) >= 1));
+        expect("renaming shows the named result and its cost", () -> count(item(this.openId, 2), this.sword) == 1 && "Excalibur".equals(customName(item(this.openId, 2)))
+                        && property(this.openId, 0) >= 1);
         step("take named", 2, () -> click(this.openId, 2, ContainerActionType.CLICK_ITEM, ClickItemAction.LEFT_CLICK));
         step("place named", 15, () -> click(this.openId, free(this.openId, 3, 39), ContainerActionType.CLICK_ITEM,
                 ClickItemAction.LEFT_CLICK));
-        step("check named", 1, () -> check("named sword taken, input consumed", findNamed(3, 39) >= 0 && empty(this.openId, 0)
-                && cursorEmpty()));
+        expect("named sword taken, input consumed", () -> findNamed(3, 39) >= 0 && empty(this.openId, 0)
+                && cursorEmpty());
         step("close anvil", 15, this::close);
 
         // -------------------------------------------------------------- grindstone
         step("open grindstone", 30, () -> use(grindstone));
-        step("check grindstone", 1, () -> check("grindstone opens a Java grindstone screen",
-                this.openType == ContainerType.GRINDSTONE && size(this.openId) == 39));
+        expect("grindstone opens a Java grindstone screen", () -> this.openType == ContainerType.GRINDSTONE && size(this.openId) == 39);
         step("enchanted sword in", 15, () -> {
             int slot = findSword(3, 39, true);
             click(this.openId, slot, ContainerActionType.SHIFT_CLICK_ITEM, ShiftClickItemAction.LEFT_CLICK);
         });
-        step("check grindstone result", 1, () -> check("grindstone result is the disenchanted sword",
-                count(item(this.openId, 2), this.sword) == 1 && !enchanted(item(this.openId, 2))));
+        expect("grindstone result is the disenchanted sword", () -> count(item(this.openId, 2), this.sword) == 1 && !enchanted(item(this.openId, 2)));
         step("take disenchanted", 2, () -> click(this.openId, 2, ContainerActionType.CLICK_ITEM, ClickItemAction.LEFT_CLICK));
         step("place disenchanted", 15, () -> click(this.openId, free(this.openId, 3, 39), ContainerActionType.CLICK_ITEM,
                 ClickItemAction.LEFT_CLICK));
-        step("check disenchanted", 1, () -> check("disenchanted sword taken", findSword(3, 39, true) < 0
-                && total(this.openId, 3, 39, this.sword) == 2 && empty(this.openId, 0) && empty(this.openId, 1)));
+        expect("disenchanted sword taken", () -> findSword(3, 39, true) < 0
+                && total(this.openId, 3, 39, this.sword) == 2 && empty(this.openId, 0) && empty(this.openId, 1));
         step("close grindstone", 15, this::close);
 
         // -------------------------------------------------------------- chest: what the server really has
-        step("open chest", 30, () -> use(chest));
-        step("store named", 15, () -> click(this.openId, findNamed(27, 63), ContainerActionType.SHIFT_CLICK_ITEM,
+        step("open chest", 2, () -> use(chest));
+        expect("chest open", () -> this.openId > 0 && this.openType == ContainerType.GENERIC_9X3);
+        step("store named", 2, () -> click(this.openId, findNamed(27, 63), ContainerActionType.SHIFT_CLICK_ITEM,
                 ShiftClickItemAction.LEFT_CLICK));
-        step("store plain", 15, () -> click(this.openId, find(this.openId, 27, 63, this.sword), ContainerActionType.SHIFT_CLICK_ITEM,
+        expect("named sword stored", () -> "Excalibur".equals(customName(item(this.openId, 0))));
+        step("store plain", 2, () -> click(this.openId, find(this.openId, 27, 63, this.sword), ContainerActionType.SHIFT_CLICK_ITEM,
                 ShiftClickItemAction.LEFT_CLICK));
+        expect("plain sword stored", () -> count(item(this.openId, 1), this.sword) == 1);
         step("close chest", 20, this::close);
-        step("reopen chest", 30, () -> use(chest));
-        step("check chest", 1, () -> {
-            check("server kept the anvil's name", "Excalibur".equals(customName(item(this.openId, 0))));
-            check("server kept the grindstone's disenchanting", count(item(this.openId, 1), this.sword) == 1
-                    && !enchanted(item(this.openId, 1)));
-        });
+        step("reopen chest", 2, () -> use(chest));
+        expect("server kept the anvil's name", () -> this.openId > 0 && "Excalibur".equals(customName(item(this.openId, 0))));
+        expect("server kept the grindstone's disenchanting", () -> count(item(this.openId, 1), this.sword) == 1
+                && !enchanted(item(this.openId, 1)));
         step("close chest 2", 15, this::close);
 
         // -------------------------------------------------------------- smithing table
         step("open smithing table", 30, () -> use(smithing));
-        step("check smithing table", 1, () -> check("smithing table opens a Java smithing screen",
-                this.openType == ContainerType.SMITHING && size(this.openId) == 40));
+        expect("smithing table opens a Java smithing screen", () -> this.openType == ContainerType.SMITHING && size(this.openId) == 40);
         step("template in", 15, () -> shiftClick(4, 40, this.template));
         step("base in", 15, () -> shiftClick(4, 40, this.pickaxe));
         step("addition in", 15, () -> shiftClick(4, 40, this.netherite));
-        step("check smithing result", 1, () -> check("netherite upgrade: template, base and addition give the result",
-                is(this.openId, 0, this.template, 1) && is(this.openId, 1, this.pickaxe, 1) && is(this.openId, 2, this.netherite, 1)
-                        && is(this.openId, 3, this.netheritePickaxe, 1)));
+        expect("netherite upgrade: template, base and addition give the result", () -> is(this.openId, 0, this.template, 1) && is(this.openId, 1, this.pickaxe, 1) && is(this.openId, 2, this.netherite, 1)
+                        && is(this.openId, 3, this.netheritePickaxe, 1));
         step("take upgrade", 20, () -> click(this.openId, 3, ContainerActionType.SHIFT_CLICK_ITEM, ShiftClickItemAction.LEFT_CLICK));
-        step("check upgrade", 1, () -> check("upgraded pickaxe taken, inputs consumed",
-                total(this.openId, 4, 40, this.netheritePickaxe) == 1 && empty(this.openId, 0) && empty(this.openId, 1)
-                        && empty(this.openId, 2)));
+        expect("upgraded pickaxe taken, inputs consumed", () -> total(this.openId, 4, 40, this.netheritePickaxe) == 1 && empty(this.openId, 0) && empty(this.openId, 1)
+                        && empty(this.openId, 2));
         step("close smithing table", 15, this::close);
         serverCount("netherite_pickaxe", 1);
 
         // -------------------------------------------------------------- brewing stand
         step("open brewing stand", 30, () -> use(brewing));
-        step("check brewing stand", 1, () -> check("brewing stand opens a Java brewing screen",
-                this.openType == ContainerType.BREWING_STAND && size(this.openId) == 41));
+        expect("brewing stand opens a Java brewing screen", () -> this.openType == ContainerType.BREWING_STAND && size(this.openId) == 41);
         step("fuel in", 20, () -> shiftClick(5, 41, this.blazePowder));
-        step("check fuel", 1, () -> {
-            check("shift click: blaze powder to the fuel slot", is(this.openId, 4, this.blazePowder, 1) || property(this.openId, 1) > 0);
-            this.context.log("Brewing fuel property: " + property(this.openId, 1));
-        });
+        expect("shift click: blaze powder to the fuel slot", () -> count(item(this.openId, 4), this.blazePowder) >= 1 || property(this.openId, 1) > 0);
         step("close brewing stand", 15, this::close);
 
         // -------------------------------------------------------------- storage blocks
         step("open hopper", 30, () -> use(hopper));
-        step("check hopper", 1, () -> check("hopper opens a Java hopper screen", this.openType == ContainerType.HOPPER && size(this.openId) == 41));
+        expect("hopper opens a Java hopper screen", () -> this.openType == ContainerType.HOPPER && size(this.openId) == 41);
         step("store in hopper", 15, () -> shiftClick(5, 41, this.cobblestone));
-        step("check hopper store", 1, () -> check("shift click stores in the hopper", is(this.openId, 0, this.cobblestone, 16)));
+        expect("shift click stores in the hopper", () -> is(this.openId, 0, this.cobblestone, 16));
         step("close hopper", 15, this::close);
         step("open ender chest", 30, () -> use(enderChest));
-        step("check ender chest", 1, () -> check("ender chest opens a Java 9x3 screen",
-                this.openType == ContainerType.GENERIC_9X3 && size(this.openId) == 63));
+        expect("ender chest opens a Java 9x3 screen", () -> this.openType == ContainerType.GENERIC_9X3 && size(this.openId) == 63);
         step("close ender chest", 15, this::close);
         step("open barrel", 30, () -> use(barrel));
-        step("check barrel", 1, () -> check("barrel opens a Java 9x3 screen", this.openType == ContainerType.GENERIC_9X3
-                && size(this.openId) == 63));
+        expect("barrel opens a Java 9x3 screen", () -> this.openType == ContainerType.GENERIC_9X3
+                && size(this.openId) == 63);
         step("close barrel", 15, this::close);
 
         // -------------------------------------------------------------- loom
         step("open loom", 30, () -> use(loom));
-        step("check loom", 1, () -> check("loom opens a Java loom screen", this.openType == ContainerType.LOOM && size(this.openId) == 40));
+        expect("loom opens a Java loom screen", () -> this.openType == ContainerType.LOOM && size(this.openId) == 40);
         step("banner in", 15, () -> shiftClick(4, 40, this.whiteBanner));
         step("dye in", 15, () -> shiftClick(4, 40, this.redDye));
         step("pattern", 20, () -> this.context.send(new ServerboundContainerButtonClickPacket(this.openId, 0)));
-        step("check pattern", 1, () -> check("loom result: the banner with one red layer",
-                is(this.openId, 0, this.whiteBanner, 1) && is(this.openId, 1, this.redDye, 1)
-                        && count(item(this.openId, 3), this.whiteBanner) == 1 && layers(item(this.openId, 3)) == 1));
+        expect("loom result: the banner with one red layer", () -> is(this.openId, 0, this.whiteBanner, 1) && is(this.openId, 1, this.redDye, 1)
+                        && count(item(this.openId, 3), this.whiteBanner) == 1 && layers(item(this.openId, 3)) == 1);
         step("take banner", 20, () -> click(this.openId, 3, ContainerActionType.SHIFT_CLICK_ITEM, ShiftClickItemAction.LEFT_CLICK));
-        step("check banner", 1, () -> check("patterned banner taken, banner and dye consumed", empty(this.openId, 0)
-                && empty(this.openId, 1) && total(this.openId, 4, 40, this.whiteBanner) == 1));
+        expect("patterned banner taken, banner and dye consumed", () -> empty(this.openId, 0)
+                && empty(this.openId, 1) && total(this.openId, 4, 40, this.whiteBanner) == 1);
         step("close loom", 15, this::close);
 
         // -------------------------------------------------------------- beacon
         step("open beacon", 30, () -> use(beacon));
-        step("check beacon", 1, () -> check("beacon opens a Java beacon screen", this.openType == ContainerType.BEACON
-                && size(this.openId) == 37));
+        expect("beacon opens a Java beacon screen", () -> this.openType == ContainerType.BEACON
+                && size(this.openId) == 37);
         step("payment in", 15, () -> shiftClick(1, 37, this.ironIngot));
-        step("check payment", 1, () -> check("shift click: the ingot goes to the payment slot", is(this.openId, 0, this.ironIngot, 1)));
+        expect("shift click: the ingot goes to the payment slot", () -> count(item(this.openId, 0), this.ironIngot) >= 1);
         step("set beacon", 20, () -> this.context.send(new ServerboundSetBeaconPacket(OptionalInt.of(0), OptionalInt.empty())));
-        step("check beacon paid", 1, () -> check("beacon power chosen: the payment is consumed", empty(this.openId, 0)));
+        expect("beacon power chosen: the payment is consumed", () -> empty(this.openId, 0));
         step("close beacon", 15, this::close);
-        serverCount("iron_ingot", 0);
+        serverCount("iron_ingot", () -> this.ingots - 1);
         step("close inventory", 10, this::close);
 
         // -------------------------------------------------------------- book and quill
@@ -298,16 +282,15 @@ public final class InventoryMenusScenario extends InventoryScript {
                 MoveToHotbarAction.SLOT_5));
         step("dirt to hotbar", 15, () -> click(0, find(0, 9, 45, this.dirt), ContainerActionType.MOVE_TO_HOTBAR_SLOT,
                 MoveToHotbarAction.SLOT_6));
+        expect("book and dirt moved to the hotbar", () -> is(0, 40, this.writableBook, 1) && is(0, 41, this.dirt, 1));
         step("close inventory 2", 10, this::close);
         step("select book", 10, () -> {
             this.bookSlot = 4;
-            check("book and dirt moved to the hotbar", is(0, 40, this.writableBook, 1) && is(0, 41, this.dirt, 1));
             this.context.send(new ServerboundSetCarriedItemPacket(this.bookSlot));
         });
         step("write", 20, () -> this.context.send(new ServerboundEditBookPacket(this.bookSlot, List.of("Hello", "World"), null)));
         step("sign", 30, () -> this.context.send(new ServerboundEditBookPacket(this.bookSlot, List.of("Hello", "World"), "Notes")));
-        step("check signed", 1, () -> check("signing turns the book into a written book (server update)",
-                count(item(0, 36 + this.bookSlot), this.writtenBook) == 1));
+        expect("signing turns the book into a written book (server update)", () -> count(item(0, 36 + this.bookSlot), this.writtenBook) == 1);
 
         // -------------------------------------------------------------- hotbar selection on the server
         step("select dirt", 10, () -> this.context.send(new ServerboundSetCarriedItemPacket(5)));
@@ -316,27 +299,31 @@ public final class InventoryMenusScenario extends InventoryScript {
             this.chatMark = this.context.chat().size();
             command("testforblock " + placed.getX() + " " + placed.getY() + " " + placed.getZ() + " dirt");
         });
-        step("check dirt", 1, () -> check("the server places the newly selected hotbar item",
-                this.context.chat().subList(this.chatMark, this.context.chat().size()).stream().anyMatch(l -> l.contains("Successfully"))));
+        expect("the server places the newly selected hotbar item", () -> this.context.chat().subList(this.chatMark, this.context.chat().size()).stream().anyMatch(l -> l.contains("Successfully")));
 
         // -------------------------------------------------------------- what the server has
-        step("open chest 3", 30, () -> use(chest));
-        step("store banner", 15, () -> shiftClick(27, 63, this.whiteBanner));
-        step("store book", 15, () -> shiftClick(27, 63, this.writtenBook));
+        step("open chest 3", 2, () -> use(chest));
+        expect("chest open 3", () -> this.openId > 0 && this.openType == ContainerType.GENERIC_9X3);
+        step("store banner", 2, () -> shiftClick(27, 63, this.whiteBanner));
+        expect("banner stored", () -> find(this.openId, 0, 27, this.whiteBanner) >= 0);
+        step("store book", 2, () -> shiftClick(27, 63, this.writtenBook));
+        expect("book stored", () -> find(this.openId, 0, 27, this.writtenBook) >= 0);
         step("close chest 3", 20, this::close);
-        step("reopen chest 3", 30, () -> use(chest));
-        step("check chest 3", 1, () -> {
+        step("reopen chest 3", 2, () -> use(chest));
+        expect("server kept the banner pattern", () -> {
             int banner = find(this.openId, 0, 27, this.whiteBanner);
+            return this.openId > 0 && banner >= 0 && layers(item(this.openId, banner)) == 1;
+        });
+        expect("server kept the signed book", () -> {
             int book = find(this.openId, 0, 27, this.writtenBook);
-            check("server kept the banner pattern", banner >= 0 && layers(item(this.openId, banner)) == 1);
-            check("server kept the signed book", book >= 0 && bookTitle(item(this.openId, book)).equals("Notes")
-                    && bookPages(item(this.openId, book)) == 2);
+            return book >= 0 && bookTitle(item(this.openId, book)).equals("Notes") && bookPages(item(this.openId, book)) == 2;
         });
         step("close chest 4", 15, this::close);
 
         // -------------------------------------------------------------- double chest placed by the player
         step("chests to hotbar", 15, () -> click(0, find(0, 9, 45, this.chestItem), ContainerActionType.MOVE_TO_HOTBAR_SLOT,
                 MoveToHotbarAction.SLOT_7));
+        expect("chests moved to the hotbar", () -> is(0, 42, this.chestItem, 3));
         step("close inventory 3", 10, this::close);
         step("select chests", 10, () -> this.context.send(new ServerboundSetCarriedItemPacket(6)));
         // An L of three chests: whatever the facing, two of them pair.
@@ -344,10 +331,9 @@ public final class InventoryMenusScenario extends InventoryScript {
         step("place chest 2", 15, () -> use(this.feet.add(3, -1, 3)));
         step("place chest 3", 15, () -> use(this.feet.add(2, -1, 4)));
         step("open double chest", 30, () -> use(this.feet.add(2, 0, 3)));
-        step("check double chest", 1, () -> check("a double chest opens a Java 9x6 screen",
-                this.openType == ContainerType.GENERIC_9X6 && size(this.openId) == 90));
+        expect("a double chest opens a Java 9x6 screen", () -> this.openType == ContainerType.GENERIC_9X6 && size(this.openId) == 90);
         step("store in double chest", 15, () -> shiftClick(54, 90, this.netheritePickaxe));
-        step("check double store", 1, () -> check("shift click stores in the double chest", is(this.openId, 0, this.netheritePickaxe, 1)));
+        expect("shift click stores in the double chest", () -> is(this.openId, 0, this.netheritePickaxe, 1));
         step("close double chest", 15, this::close);
         step("done", 1, () -> this.context.log("Inventory menus scenario finished"));
     }

@@ -28,28 +28,21 @@ public final class InventoryCustomItemsScenario extends InventoryScript {
             command("give " + this.name + " jtb:ruby 5");
             command("give " + this.name + " jtb:ruby_helmet 1");
         });
-        step("check items", 1, () -> {
-            ItemStack ruby = item(0, 36);
-            ItemStack helmet = item(0, 37);
-            this.context.log("Ruby: " + ruby);
-            this.context.log("Helmet: " + helmet);
-            check("custom item shown as its base item with its identity", count(ruby, this.paper) == 5
-                    && "jtb:ruby".equals(identity(ruby)));
-            check("custom item has a name", ruby != null && !plain(component(ruby, DataComponentTypes.ITEM_NAME)).isEmpty());
-            check("custom wearable: head equipment, one per stack", count(helmet, this.paper) == 1
-                    && "jtb:ruby_helmet".equals(identity(helmet)) && equipmentSlot(helmet) == EquipmentSlot.HELMET
-                    && Integer.valueOf(1).equals(component(helmet, DataComponentTypes.MAX_STACK_SIZE)));
-        });
+        expect("custom item shown as its base item with its identity", () -> count(item(0, 36), this.paper) == 5
+                && "jtb:ruby".equals(identity(item(0, 36))));
+        expect("custom item has a name", () -> !plain(component(item(0, 36), DataComponentTypes.ITEM_NAME)).isEmpty());
+        expect("custom wearable: head equipment, one per stack", () -> count(item(0, 37), this.paper) == 1
+                && "jtb:ruby_helmet".equals(identity(item(0, 37))) && equipmentSlot(item(0, 37)) == EquipmentSlot.HELMET
+                && Integer.valueOf(1).equals(component(item(0, 37), DataComponentTypes.MAX_STACK_SIZE)));
         step("equip", 15, () -> click(0, 37, ContainerActionType.SHIFT_CLICK_ITEM, ShiftClickItemAction.LEFT_CLICK));
-        step("check equip", 1, () -> check("shift click puts the custom helmet on the head",
-                "jtb:ruby_helmet".equals(identity(item(0, 5))) && empty(0, 37)));
+        expect("shift click puts the custom helmet on the head", () -> "jtb:ruby_helmet".equals(identity(item(0, 5))) && empty(0, 37));
         step("split", 2, () -> click(0, 36, ContainerActionType.CLICK_ITEM, ClickItemAction.RIGHT_CLICK));
         step("place half", 15, () -> click(0, 20, ContainerActionType.CLICK_ITEM, ClickItemAction.LEFT_CLICK));
-        step("check split", 1, () -> check("custom stack split: 2 + 3", count(item(0, 36), this.paper) == 2
-                && count(item(0, 20), this.paper) == 3 && "jtb:ruby".equals(identity(item(0, 20)))));
+        expect("custom stack split: 2 + 3", () -> count(item(0, 36), this.paper) == 2
+                && count(item(0, 20), this.paper) == 3 && "jtb:ruby".equals(identity(item(0, 20))));
         step("merge pickup", 2, () -> click(0, 20, ContainerActionType.CLICK_ITEM, ClickItemAction.LEFT_CLICK));
         step("merge", 15, () -> click(0, 36, ContainerActionType.CLICK_ITEM, ClickItemAction.LEFT_CLICK));
-        step("check merge", 1, () -> check("custom stacks merge back", count(item(0, 36), this.paper) == 5 && empty(0, 20)));
+        expect("custom stacks merge back", () -> count(item(0, 36), this.paper) == 5 && empty(0, 20));
         step("close inventory", 10, this::close);
         serverCount("jtb:ruby", 5);
         step("done", 1, () -> this.context.log("Custom items scenario finished"));
