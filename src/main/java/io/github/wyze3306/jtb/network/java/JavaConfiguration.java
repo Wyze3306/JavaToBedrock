@@ -81,6 +81,13 @@ public final class JavaConfiguration implements SessionState {
                 encodeString(JavaToBedrock.NAME)));
         this.session.sendJavaDirect(new ClientboundSelectKnownPacks(List.of(
                 new KnownPack("minecraft", "core", JavaServer.javaVersionName()))));
+        scheduleReadyTimeout();
+    }
+
+    private void scheduleReadyTimeout() {
+        if (this.readyTimeout != null) {
+            this.readyTimeout.cancel(false);
+        }
         this.readyTimeout = this.session.schedule(() -> {
             if (!this.bedrockReady) {
                 // Without StartGame there is no Java login packet to send: the client cannot play.
@@ -226,9 +233,8 @@ public final class JavaConfiguration implements SessionState {
             return;
         }
         this.finishSent = true;
-        if (!this.reconfiguring) {
-            sendRegistries();
-        }
+        // Sent on every (re)configuration: another Bedrock server may define other biomes.
+        sendRegistries();
         this.session.get(JavaKeepAlive.KEY).setPaused(true);
         this.session.sendJavaDirect(new ClientboundFinishConfigurationPacket());
     }
@@ -257,6 +263,7 @@ public final class JavaConfiguration implements SessionState {
         this.reconfiguring = true;
         this.reconfigurationAcknowledged = false;
         this.finishSent = false;
+        this.session.clearPendingGamePackets();
         this.session.enterConfiguration();
         this.session.get(JavaKeepAlive.KEY).setPaused(true);
         MinecraftProtocol protocol = (MinecraftProtocol) this.session.javaSession().getPacketProtocol();
@@ -277,6 +284,19 @@ public final class JavaConfiguration implements SessionState {
         return this.session.javaPhase() == ProxySession.JavaPhase.CONFIGURATION;
     }
 
+    /**
+     * Sends the client back to configuration to join another Bedrock server: everything waits again
+     * for the new server's StartGame (and resource packs), then a fresh Java login rebuilds the world.
+     */
+    public void startServerSwitch() {
+        this.bedrockReady = false;
+        this.extraEntries.clear();
+        this.pendingPacks.clear();
+        this.resourcePackHolds = 0;
+        startReconfiguration();
+        scheduleReadyTimeout();
+    }
+
     void onReconfigurationAcknowledged() {
         this.reconfigurationAcknowledged = true;
         this.session.get(JavaKeepAlive.KEY).setPaused(false);
@@ -294,6 +314,11 @@ public final class JavaConfiguration implements SessionState {
         out.write(length);
         out.writeBytes(bytes);
         return out.toByteArray();
+    }
+
+    @Override
+    public boolean survivesServerSwitch() {
+        return true;
     }
 
     @Override

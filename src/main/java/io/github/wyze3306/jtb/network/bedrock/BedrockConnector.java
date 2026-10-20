@@ -80,11 +80,17 @@ public final class BedrockConnector implements AutoCloseable {
      * connection exists so a slow sign-in (Microsoft device code) cannot time the connection out.
      */
     public void start(ProxySession session) {
+        ProxyConfig.Bedrock config = this.proxy.config().bedrock();
+        start(session, new InetSocketAddress(config.address(), config.port()));
+    }
+
+    /** Same as {@link #start(ProxySession)} with an explicit server (Bedrock transfers). */
+    public void start(ProxySession session, InetSocketAddress target) {
         CompletableFuture<LoginData> identity = this.proxy.authProvider().login(session);
         CompletableFuture<BedrockSkinData> skin = JavaSkinProvider.forProfile(session.getProfile(),
                 this.proxy.config().features().javaSkins());
         identity.thenCombine(skin, (loginData, skinData) -> {
-            session.execute(() -> connect(session, loginData, skinData));
+            session.execute(() -> connect(session, target, loginData, skinData));
             return null;
         }).exceptionally(error -> {
             LOGGER.warn("[{}] Bedrock authentication failed", session.getName(), error);
@@ -106,12 +112,11 @@ public final class BedrockConnector implements AutoCloseable {
      * Connects the session to the configured Bedrock server and runs the login with {@code login}.
      * Kicks the Java player with an explanation when the server cannot be reached.
      */
-    public void connect(ProxySession session, LoginData login, BedrockSkinData skin) {
+    public void connect(ProxySession session, InetSocketAddress address, LoginData login, BedrockSkinData skin) {
         if (session.isClosed()) {
             return;
         }
         ProxyConfig.Bedrock config = this.proxy.config().bedrock();
-        InetSocketAddress address = new InetSocketAddress(config.address(), config.port());
         BedrockCodec codec = codecForServer();
 
         Bootstrap bootstrap = new Bootstrap()
@@ -136,14 +141,14 @@ public final class BedrockConnector implements AutoCloseable {
                 });
 
         LOGGER.info("[{}] Connecting to Bedrock server {}:{} (protocol {})", session.getName(),
-                config.address(), config.port(), codec.getProtocolVersion());
+                address.getHostString(), address.getPort(), codec.getProtocolVersion());
         ChannelFuture future = bootstrap.connect(address);
         future.addListener(result -> {
             if (!result.isSuccess()) {
                 LOGGER.warn("[{}] Could not reach the Bedrock server {}:{}: {}", session.getName(),
-                        config.address(), config.port(), result.cause() == null ? "?" : result.cause().toString());
+                        address.getHostString(), address.getPort(), result.cause() == null ? "?" : result.cause().toString());
                 session.disconnect(Component.text("Impossible de joindre le serveur Bedrock ", NamedTextColor.RED)
-                        .append(Component.text(config.address() + ":" + config.port(), NamedTextColor.GRAY))
+                        .append(Component.text(address.getHostString() + ":" + address.getPort(), NamedTextColor.GRAY))
                         .append(Component.newline())
                         .append(Component.text(String.valueOf(result.cause() == null ? "" : result.cause().getMessage()), NamedTextColor.DARK_GRAY)));
             }

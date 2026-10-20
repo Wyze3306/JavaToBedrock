@@ -252,6 +252,42 @@ public final class ProxySession {
         this.javaPhase = JavaPhase.CONFIGURATION;
     }
 
+    /** Drops queued play packets (they belong to a world the client is leaving). */
+    public void clearPendingGamePackets() {
+        this.pendingGamePackets.clear();
+    }
+
+    /**
+     * Moves the player to another Bedrock server without disconnecting the Java client: closes the
+     * current Bedrock connection, discards every Bedrock-side state, sends the client back to the
+     * configuration phase and connects to {@code target}. Must run on the event loop.
+     */
+    public void switchServer(InetSocketAddress target) {
+        BedrockClientSession old = this.bedrockSession;
+        this.bedrockSession = null;
+        if (old != null && old.isConnected()) {
+            old.disconnect("Transferred");
+        }
+        for (int i = 0; i < this.states.length; i++) {
+            Object state = this.states[i];
+            if (state != null && !((SessionState) state).survivesServerSwitch()) {
+                try {
+                    ((SessionState) state).close();
+                } catch (Throwable t) {
+                    LOGGER.error("[{}] Error while closing {}", getName(), state.getClass().getSimpleName(), t);
+                }
+                this.states[i] = null;
+            }
+        }
+        if (this.tickTask != null) {
+            this.tickTask.cancel(false);
+            this.tickTask = null;
+        }
+        LOGGER.info("[{}] Switching to Bedrock server {}:{}", getName(), target.getHostString(), target.getPort());
+        get(io.github.wyze3306.jtb.network.java.JavaConfiguration.KEY).startServerSwitch();
+        this.proxy.bedrockConnector().start(this, target);
+    }
+
     /**
      * The host name the Java player typed to connect (used to build resource pack URLs).
      */

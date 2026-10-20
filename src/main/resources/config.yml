@@ -31,7 +31,8 @@ bedrock:
   #               PowerNukkitX vérifie la signature (section java-bridge de pnx.yml)
   auth: offline
   # Clé privée du proxy pour le mode "trusted" (générée au premier démarrage).
-  # Copiez la clé publique affichée au démarrage dans pnx.yml (java-bridge.proxy-public-key).
+  # Copiez la clé publique affichée au démarrage dans pnx.yml
+  # (network-settings.java-bridge.proxy-public-keys).
   trusted-key-file: jtb-proxy-key.pem
   # Préfixe ajouté au pseudo Bedrock des joueurs Java (ex: "." pour éviter les doublons).
   username-prefix: ""
@@ -39,6 +40,9 @@ bedrock:
   connect-timeout: 10
   # Langue envoyée au serveur Bedrock si le client Java n'en a pas encore donné.
   default-language: fr_FR
+  # Suivre les transferts du serveur Bedrock (TransferPacket, ex. lobby -> mini-jeu) :
+  # le joueur Java change de serveur sans être déconnecté.
+  follow-transfers: true
 
 # --- Packs de ressources ------------------------------------------------------
 resource-packs:

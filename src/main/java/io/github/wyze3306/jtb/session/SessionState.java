@@ -14,8 +14,19 @@ public interface SessionState {
     }
 
     /**
-     * Called once when the session closes. Must release resources (scheduled tasks, buffers...).
+     * Called once when the session closes, or when the player switches Bedrock server and this state
+     * does not {@linkplain #survivesServerSwitch() survive it}. Must release resources (scheduled
+     * tasks, buffers...).
      */
     default void close() {
+    }
+
+    /**
+     * Whether this state is about the Java connection itself and must be kept when the player is moved
+     * to another Bedrock server ({@code TransferPacket}). Everything describing the Bedrock world is
+     * discarded and rebuilt from the new server.
+     */
+    default boolean survivesServerSwitch() {
+        return false;
     }
 }

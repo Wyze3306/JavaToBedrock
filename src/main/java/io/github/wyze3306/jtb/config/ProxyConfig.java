@@ -32,7 +32,7 @@ public final class ProxyConfig {
     }
 
     public record Bedrock(String address, int port, AuthMode auth, String trustedKeyFile, String usernamePrefix,
-                          int connectTimeoutSeconds, String defaultLanguage) {
+                          int connectTimeoutSeconds, String defaultLanguage, boolean followTransfers) {
     }
 
     public record ResourcePacks(boolean enabled, String httpBind, int httpPort, String publicUrl, boolean required,
@@ -63,7 +63,8 @@ public final class ProxyConfig {
         Section b = root.section("bedrock");
         this.bedrock = new Bedrock(b.string("address"), b.integer("port"),
                 AuthMode.valueOf(b.string("auth").toUpperCase(Locale.ROOT)), b.string("trusted-key-file"),
-                b.string("username-prefix"), b.integer("connect-timeout"), b.string("default-language"));
+                b.string("username-prefix"), b.integer("connect-timeout"), b.string("default-language"),
+                b.bool("follow-transfers"));
 
         Section r = root.section("resource-packs");
         this.resourcePacks = new ResourcePacks(r.bool("enabled"), r.string("http-bind"), r.integer("http-port"),
