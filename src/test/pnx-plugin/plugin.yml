@@ -1,0 +1,7 @@
+name: JtbTestPlugin
+main: jtbtest.JtbTestPlugin
+version: "1.0.0"
+api: ["3.0.0"]
+load: POSTWORLD
+author: JavaToBedrock
+description: Test-only plugin for the JavaToBedrock form/ui end-to-end scenarios
