@@ -9,6 +9,7 @@ import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
 import org.cloudburstmc.protocol.bedrock.packet.StartGamePacket;
+import org.jspecify.annotations.Nullable;
 
 /**
  * CONTRACT (owner: entity subsystem). Entities known to the Java client and the id mapping
@@ -71,5 +72,14 @@ public final class EntityTracker implements SessionState {
 
     /** {@code MovePlayer} for another player (the player module handles the local one). */
     public void onRemotePlayerMove(MovePlayerPacket packet) {
+    }
+
+    /**
+     * Java scoreboard holder name of a Bedrock entity, by unique id: the Java profile name of a player
+     * (what the tab list and name tags use), the entity's Java UUID string otherwise. Null when the
+     * entity is unknown. Used by the ui subsystem for {@code SetScore} entries.
+     */
+    public @Nullable String scoreHolder(long uniqueId) {
+        return null;
     }
 }

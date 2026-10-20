@@ -17,6 +17,13 @@ public final class ConversionArtifacts {
     private final Set<String> sounds = new HashSet<>();
     /** Translations from the packs' {@code texts/*.lang}, by Bedrock language code. */
     private final Map<String, Map<String, String>> languages = new HashMap<>();
+    /**
+     * True when the pack has the screen overlay font used for camera fades: font
+     * {@code jtb:overlay} whose character U+E000 is an opaque white square tall enough to cover the
+     * screen at title scale (e.g. a bitmap provider with {@code height 256, ascent 128}). The ui
+     * subsystem tints it with the fade colour.
+     */
+    private boolean fadeOverlay;
 
     public Map<String, String> itemModels() {
         return this.itemModels;
@@ -28,5 +35,13 @@ public final class ConversionArtifacts {
 
     public Map<String, Map<String, String>> languages() {
         return this.languages;
+    }
+
+    public boolean fadeOverlay() {
+        return this.fadeOverlay;
+    }
+
+    public void setFadeOverlay(boolean fadeOverlay) {
+        this.fadeOverlay = fadeOverlay;
     }
 }

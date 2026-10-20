@@ -126,11 +126,14 @@ Les formulaires Bedrock (`ModalFormRequestPacket`) sont rendus nativement avec l
 | Bedrock | Java |
 |---|---|
 | `form` (SimpleForm : boutons) | dialogue `multi_action`, un bouton par bouton Bedrock |
-| `modal` (deux boutons) | dialogue `confirmation` |
+| `modal` (deux boutons) | dialogue `multi_action` à deux boutons (+ bouton de sortie, pour distinguer Échap de « non ») |
 | `custom_form` (label, input, toggle, slider, step_slider, dropdown, header, divider) | dialogue `notice`/`multi_action` avec entrées `text`, `boolean`, `number_range`, `single_option` et un bouton « Envoyer » qui renvoie toutes les valeurs |
 | Fermeture (Échap) | réponse Bedrock annulée (`cancelReason = USER_CLOSED`) |
 
-Les réponses passent par `ServerboundCustomClickActionPacket` (`jtb:form/<id>`).
+Les réponses passent par `ServerboundCustomClickActionPacket` (`jtb:form/<n>`, un numéro par affichage).
+Les formulaires reçus pendant qu'un dialogue est affiché attendent leur tour, comme sur Bedrock ; les
+paramètres du serveur (`ServerSettingsRequest`) sont accessibles depuis le menu pause ; les dialogues de
+PNJ et les écrans pilotés par les données (`ddui`) sont aussi rendus en dialogues.
 
 ## 7. Packs de ressources
 
