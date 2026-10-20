@@ -28,6 +28,11 @@ final class Mirror {
         return new SlotRef(this.player, slot, ContainerEnumName.HOTBAR_CONTAINER, slot);
     }
 
+    /** Player inventory slot 0-35 (0-8 hotbar, 9-35 main inventory). */
+    SlotRef inventorySlot(int slot) {
+        return slot < 9 ? hotbar(slot) : new SlotRef(this.player, slot, ContainerEnumName.INVENTORY_CONTAINER, slot);
+    }
+
     /**
      * The mirrored slot a request/response container name and network slot designate, or null (the
      * created output, unknown names).

@@ -164,6 +164,7 @@ public final class InventoryState implements SessionState {
     private final List<Batch> completed = new ArrayList<>();
     private int nextRequestId = -1;
     private boolean closed;
+    private boolean fullContentNeeded = true;
 
     private int dragType = -1;
     private int dragMenu = -1;
@@ -439,7 +440,8 @@ public final class InventoryState implements SessionState {
     private void replaceOpenMenu() {
         Menu menu = this.openMenu;
         if (menu != null) {
-            clearUiInputs(menu);
+            returnInputs(menu);
+            clearWindow(menu);
             this.openMenu = null;
         }
         this.pendingOpen = null;
@@ -567,7 +569,8 @@ public final class InventoryState implements SessionState {
         Menu menu = this.openMenu;
         if (menu != null && menu.bedrockWindowId == id) {
             this.session.sendJava(new ClientboundContainerClosePacket(menu.javaId));
-            clearUiInputs(menu);
+            returnInputs(menu);
+            clearWindow(menu);
             this.openMenu = null;
             resetDrag();
             flush();
@@ -1020,9 +1023,7 @@ public final class InventoryState implements SessionState {
     private void close(int javaId) {
         resetDrag();
         if (javaId == 0) {
-            if (isCreative()) {
-                destroyParkedItems();
-            }
+            returnInputs(this.playerMenu);
             if (this.inventoryWindow >= 0) {
                 closeBedrockInventory();
             } else if (this.inventoryOpenRequested) {
@@ -1036,15 +1037,91 @@ public final class InventoryState implements SessionState {
         }
         this.openMenu = null;
         menu.pendingClose = true;
+        returnInputs(menu);
         if (menu.kind != Menu.Kind.LECTERN) {
             this.closingWindow = menu.bedrockWindowId;
             sendBedrockClose(menu.bedrockWindowId, menu.bedrockType);
         }
-        clearUiInputs(menu);
-        if (isCreative()) {
-            destroyParkedItems();
-        }
+        clearWindow(menu);
         flush();
+    }
+
+    /**
+     * What the Bedrock client does before closing a screen: the items left in its input slots
+     * (crafting grid, anvil, enchanting table...) and the cursor go back to the player inventory, or
+     * are dropped when it is full. In creative mode, the items parked in the cursor are deleted.
+     */
+    private void returnInputs(Menu menu) {
+        Transaction tx = new Transaction();
+        for (int i = 0; i < menu.slots.length; i++) {
+            SlotRef slot = menu.slots[i];
+            if (slot != null && slot.container() == this.mirror.ui && !menu.isResult(i) && slot.index() != Mirror.CREATED_OUTPUT
+                    && slot.index() != Mirror.CURSOR) {
+                returnToInventory(tx, slot);
+            }
+        }
+        if (isCreative()) {
+            ItemData parked = tx.get(this.mirror.cursor);
+            if (!ItemTranslator.isAir(parked)) {
+                tx.destroy(this.mirror.cursor, parked.getCount());
+            }
+        } else {
+            returnToInventory(tx, this.mirror.cursor);
+        }
+        if (!tx.isEmpty()) {
+            submit(tx, this.playerMenu, IntSet.of(), IntSet.of());
+        }
+    }
+
+    /**
+     * Moves a slot's items into the player inventory like vanilla {@code placeItemBackInInventory}:
+     * stacks with room first (selected slot, off hand, then slots 0-35), then empty slots (0-35), the
+     * rest is dropped.
+     */
+    private void returnToInventory(Transaction tx, SlotRef from) {
+        for (int guard = 0; guard < 40; guard++) {
+            ItemData item = tx.get(from);
+            if (ItemTranslator.isAir(item)) {
+                return;
+            }
+            SlotRef target = roomFor(tx, item);
+            if (target == null) {
+                tx.drop(from, item.getCount());
+                return;
+            }
+            ItemData existing = tx.get(target);
+            int max = ItemTranslator.maxStackSize(this.session, item);
+            int room = ItemTranslator.isAir(existing) ? max : max - existing.getCount();
+            tx.transfer(from, target, Math.min(room, item.getCount()), false);
+        }
+    }
+
+    private @Nullable SlotRef roomFor(Transaction tx, ItemData item) {
+        int max = ItemTranslator.maxStackSize(this.session, item);
+        SlotRef selected = this.mirror.hotbar(this.selectedSlot);
+        if (hasRoom(tx.get(selected), item, max)) {
+            return selected;
+        }
+        if (hasRoom(tx.get(this.mirror.offhandSlot), item, max)) {
+            return this.mirror.offhandSlot;
+        }
+        for (int i = 0; i < 36; i++) {
+            SlotRef slot = this.mirror.inventorySlot(i);
+            if (hasRoom(tx.get(slot), item, max)) {
+                return slot;
+            }
+        }
+        for (int i = 0; i < 36; i++) {
+            SlotRef slot = this.mirror.inventorySlot(i);
+            if (ItemTranslator.isAir(tx.get(slot))) {
+                return slot;
+            }
+        }
+        return null;
+    }
+
+    private static boolean hasRoom(ItemData existing, ItemData item, int max) {
+        return !ItemTranslator.isAir(existing) && ItemTranslator.stackable(existing, item) && existing.getCount() < max;
     }
 
     private void closeBedrockInventory() {
@@ -1064,26 +1141,13 @@ public final class InventoryState implements SessionState {
      * The server gives the items of a closed screen's UI inputs back to the inventory and only tells
      * about the inventory side: forget the inputs in the mirror.
      */
-    private void clearUiInputs(Menu menu) {
-        for (SlotRef slot : menu.slots) {
-            if (slot != null && slot.container() == this.mirror.ui) {
-                this.mirror.ui.set(slot.index(), ItemData.AIR);
-            }
-        }
+    /** The window mirror only describes the open window. */
+    private void clearWindow(Menu menu) {
         if (menu.kind != Menu.Kind.PLAYER) {
             this.mirror.window.clear();
         }
     }
 
-    /** In creative mode, items parked in the Bedrock cursor are gone once the Java screen closes. */
-    private void destroyParkedItems() {
-        ItemData parked = this.mirror.ui.get(Mirror.CURSOR);
-        if (!ItemTranslator.isAir(parked)) {
-            Transaction tx = new Transaction();
-            tx.destroy(this.mirror.cursor, parked.getCount());
-            submit(tx, this.playerMenu, IntSet.of(), IntSet.of());
-        }
-    }
 
     void onButtonClick(int javaId, int button) {
         runOrQueue(() -> buttonClick(javaId, button));
@@ -1438,6 +1502,12 @@ public final class InventoryState implements SessionState {
 
     /** Sends every slot of the shown screens whose content changed since it was last sent. */
     void flush() {
+        if (this.fullContentNeeded) {
+            // First content of this session (or after a respawn): the whole window at once.
+            this.fullContentNeeded = false;
+            this.playerMenu.forgetSent();
+            sendContent(this.playerMenu);
+        }
         Menu open = this.openMenu;
         if (open != null) {
             sync(open, 0, open.size());
@@ -1494,8 +1564,8 @@ public final class InventoryState implements SessionState {
         if (this.closed) {
             return;
         }
-        this.playerMenu.forgetSent();
-        sendContent(this.playerMenu);
+        this.fullContentNeeded = true;
+        flush();
         this.session.sendJava(new ClientboundSetHeldSlotPacket(this.selectedSlot));
     }
 }

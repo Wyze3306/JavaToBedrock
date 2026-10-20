@@ -504,8 +504,15 @@ public final class ItemTranslator {
 
     private static boolean matches(ItemMappings.Mapping mapping, @Nullable DataComponents components) {
         PotionContents potion = components == null ? null : components.get(DataComponentTypes.POTION_CONTENTS);
-        if (mapping.potion() != null || potion != null) {
-            return potion != null && mapping.potion() != null && ItemMappings.get().potionId(mapping.potion()) == potion.getPotionId();
+        if (mapping.potion() != null || mapping.effects() != null || potion != null) {
+            if (potion == null) {
+                return false;
+            }
+            if (mapping.potion() != null) {
+                return ItemMappings.get().potionId(mapping.potion()) == potion.getPotionId();
+            }
+            // A Bedrock-only potion (decay): shown as custom effects.
+            return mapping.effects() != null && potion.getPotionId() < 0 && sameEffects(mapping.effects(), potion.getCustomEffects());
         }
         Holder<?> instrument = components == null ? null : components.get(DataComponentTypes.INSTRUMENT);
         if (mapping.instrument() != null || instrument != null) {
@@ -517,6 +524,19 @@ public final class ItemTranslator {
             return state != null && state.getProperties().equals(mapping.blockState());
         }
         return mapping.nameKey() == null;
+    }
+
+    private static boolean sameEffects(List<ItemMappings.EffectSpec> specs, @Nullable List<MobEffectInstance> effects) {
+        if (effects == null || effects.size() != specs.size()) {
+            return false;
+        }
+        for (int i = 0; i < specs.size(); i++) {
+            if (effects.get(i).getEffect() != effect(specs.get(i).effect())
+                    || effects.get(i).getDetails().getAmplifier() != specs.get(i).amplifier()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // ------------------------------------------------------------------ helpers
@@ -610,7 +630,8 @@ public final class ItemTranslator {
         }
         Object value = component.getValue();
         if (value instanceof PotionContents potion) {
-            value = potion.getPotionId();
+            value = potion.getPotionId() >= 0 ? potion.getPotionId() : potion.getCustomEffects().stream()
+                    .map(effect -> effect.getEffect() + "/" + effect.getDetails().getAmplifier()).toList();
         } else if (value instanceof Holder<?> holder) {
             value = holder.isId() ? holder.id() : holder.custom();
         } else if (value instanceof ItemEnchantments enchantments) {

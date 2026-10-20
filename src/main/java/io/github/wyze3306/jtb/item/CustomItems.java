@@ -77,9 +77,9 @@ public final class CustomItems {
         out.put(DataComponentTypes.ITEM_MODEL, modelKey(identifier));
         out.put(DataComponentTypes.ITEM_NAME, name(identifier, components, lang));
 
-        int maxDamage = components.getCompound("minecraft:durability", NbtMap.EMPTY).getInt("max_durability", 0);
-        int maxStack = components.getCompound("minecraft:max_stack_size", NbtMap.EMPTY)
-                .getInt("value", properties.getInt("max_stack_size", 64));
+        int maxDamage = num(components.getCompound("minecraft:durability", NbtMap.EMPTY), "max_durability", 0).intValue();
+        int maxStack = num(components.getCompound("minecraft:max_stack_size", NbtMap.EMPTY), "value",
+                num(properties, "max_stack_size", 64)).intValue();
         maxStack = Math.clamp(maxStack, 1, 99);
         if (maxDamage > 0) {
             // Java rejects stacks that are both damageable and stackable.
@@ -88,14 +88,14 @@ public final class CustomItems {
         }
         out.put(DataComponentTypes.MAX_STACK_SIZE, maxStack);
 
-        if (properties.getBoolean("foil", false) || components.containsKey("minecraft:glint")) {
+        if (bool(properties, "foil", false) || components.containsKey("minecraft:glint")) {
             out.put(DataComponentTypes.ENCHANTMENT_GLINT_OVERRIDE, true);
         }
 
         NbtMap food = components.getCompound("minecraft:food", null);
         if (food != null) {
-            out.put(DataComponentTypes.FOOD, new FoodProperties(food.getInt("nutrition", 0),
-                    food.getFloat("saturation_modifier", 0.6f), food.getBoolean("can_always_eat", false)));
+            out.put(DataComponentTypes.FOOD, new FoodProperties(num(food, "nutrition", 0).intValue(),
+                    num(food, "saturation_modifier", 0.6f).floatValue(), bool(food, "can_always_eat", false)));
             out.put(DataComponentTypes.CONSUMABLE, new Consumable(useSeconds(components, properties),
                     Consumable.ItemUseAnimation.EAT, BuiltinSound.ENTITY_GENERIC_EAT, true, List.of()));
         }
@@ -108,15 +108,15 @@ public final class CustomItems {
 
         boolean digger = components.containsKey("minecraft:digger");
         if (digger) {
-            out.put(DataComponentTypes.TOOL, new ToolData(List.of(), properties.getFloat("mining_speed", 1.0f), 1,
-                    properties.getBoolean("can_destroy_in_creative", true)));
+            out.put(DataComponentTypes.TOOL, new ToolData(List.of(), num(properties, "mining_speed", 1.0f).floatValue(), 1,
+                    bool(properties, "can_destroy_in_creative", true)));
         }
 
         NbtMap cooldown = components.getCompound("minecraft:cooldown", null);
-        if (cooldown != null && cooldown.getFloat("duration", 0) > 0) {
+        if (cooldown != null && num(cooldown, "duration", 0).floatValue() > 0) {
             String category = cooldown.getString("category", "");
             Key group = category.isEmpty() ? null : Key.key("jtb", sanitize(category, false));
-            out.put(DataComponentTypes.USE_COOLDOWN, new UseCooldown(cooldown.getFloat("duration"), group));
+            out.put(DataComponentTypes.USE_COOLDOWN, new UseCooldown(num(cooldown, "duration", 0).floatValue(), group));
         }
 
         int base;
@@ -137,10 +137,10 @@ public final class CustomItems {
 
     private static float useSeconds(NbtMap components, NbtMap properties) {
         NbtMap modifiers = components.getCompound("minecraft:use_modifiers", null);
-        if (modifiers != null && modifiers.getFloat("use_duration", 0) > 0) {
-            return modifiers.getFloat("use_duration");
+        if (modifiers != null && num(modifiers, "use_duration", 0).floatValue() > 0) {
+            return num(modifiers, "use_duration", 0).floatValue();
         }
-        int ticks = properties.getInt("use_duration", 32);
+        int ticks = num(properties, "use_duration", 32).intValue();
         return ticks > 0 ? ticks / 20.0f : 1.6f;
     }
 
@@ -170,6 +170,19 @@ public final class CustomItems {
             }
         }
         return Component.text(readableName(identifier));
+    }
+
+    /** A numeric NBT value whatever its exact type (servers write bytes, shorts or ints). */
+    private static Number num(NbtMap map, String key, Number defaultValue) {
+        return map.get(key) instanceof Number number ? number : defaultValue;
+    }
+
+    private static boolean bool(NbtMap map, String key, boolean defaultValue) {
+        Object value = map.get(key);
+        if (value instanceof Boolean flag) {
+            return flag;
+        }
+        return value instanceof Number number ? number.intValue() != 0 : defaultValue;
     }
 
     /** {@code mymod:ruby_sword} -> {@code Ruby Sword}. */
