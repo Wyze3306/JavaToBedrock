@@ -32,7 +32,7 @@ bedrock:
   auth: offline
   # Clé privée du proxy pour le mode "trusted" (générée au premier démarrage).
   # Copiez la clé publique affichée au démarrage dans pnx.yml
-  # (network-settings.java-bridge.proxy-public-keys).
+  # (network-settings.java-bridge.proxyPublicKeys).
   trusted-key-file: jtb-proxy-key.pem
   # Préfixe ajouté au pseudo Bedrock des joueurs Java (ex: "." pour éviter les doublons).
   username-prefix: ""
