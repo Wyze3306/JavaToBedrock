@@ -7,6 +7,7 @@ import io.github.wyze3306.jtb.world.chunk.BedrockChunkDecoder;
 import io.github.wyze3306.jtb.world.chunk.BiomeTable;
 import io.github.wyze3306.jtb.world.chunk.ChunkLayout;
 import io.github.wyze3306.jtb.world.chunk.ChunkSection;
+import io.github.wyze3306.jtb.world.chunk.DerivedStatePass;
 import io.github.wyze3306.jtb.world.chunk.JavaChunkEncoder;
 import io.github.wyze3306.jtb.world.light.LightEngine;
 import io.netty.buffer.ByteBuf;
@@ -45,6 +46,7 @@ public final class ChunkPipelineBench {
         }
         for (int round = 0; round < 4; round++) {
             long decode = 0;
+            long derive = 0;
             long light = 0;
             long encode = 0;
             LightEngine engine = new LightEngine(layout, lightTable());
@@ -57,6 +59,9 @@ public final class ChunkPipelineBench {
                 decoded[i] = data.sections();
                 biomeData[i] = data.biomes();
                 t = System.nanoTime();
+                DerivedStatePass.deriveColumn(decoded[i], layout, mapper);
+                derive += System.nanoTime() - t;
+                t = System.nanoTime();
                 engine.load(coords[i][0], coords[i][1], decoded[i].clone());
                 light += System.nanoTime() - t;
             }
@@ -67,8 +72,9 @@ public final class ChunkPipelineBench {
                 engine.lightData(coords[i][0], coords[i][1]);
                 encode += System.nanoTime() - t;
             }
-            System.out.printf("round %d: %d chunks, decode %.1f ms, light %.1f ms, encode %.1f ms (per chunk %.2f / %.2f / %.2f)%n",
-                    round, count, decode / 1e6, light / 1e6, encode / 1e6, decode / 1e6 / count, light / 1e6 / count, encode / 1e6 / count);
+            System.out.printf("round %d: %d chunks, decode %.1f ms, derive %.1f ms, light %.1f ms, encode %.1f ms (per chunk %.2f / %.2f / %.2f / %.2f)%n",
+                    round, count, decode / 1e6, derive / 1e6, light / 1e6, encode / 1e6, decode / 1e6 / count, derive / 1e6 / count,
+                    light / 1e6 / count, encode / 1e6 / count);
         }
     }
 

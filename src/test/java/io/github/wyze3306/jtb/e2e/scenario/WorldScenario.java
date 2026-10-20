@@ -34,7 +34,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Checks what the world subsystem sends: chunks the Java codec can decode, with terrain around the
  * player, valid biomes, heightmaps and computed light; block and light updates only for chunks the
  * client has; and, when the proxy forwards commands (needs {@code Tester<N>} in the server's
- * ops.txt), that {@code /setblock} changes show up as block updates with light.
+ * ops.txt), that {@code /setblock} changes show up as block updates with light, and with the states
+ * Java derives from neighbours (redstone wire connections, snowy grass).
  */
 public final class WorldScenario implements E2eScenario {
 
@@ -259,6 +260,14 @@ public final class WorldScenario implements E2eScenario {
             context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX + 2) + " " + (this.baseY + 1) + " " + this.baseZ + " glowstone"));
         } else if (tick == 140 && this.commands.get()) {
             context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX + 2) + " " + (this.baseY + 1) + " " + this.baseZ + " air"));
+        } else if (tick == 160 && this.commands.get()) {
+            context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX - 2) + " " + (this.baseY - 1) + " " + this.baseZ + " stone"));
+        } else if (tick == 165 && this.commands.get()) {
+            context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX - 2) + " " + this.baseY + " " + this.baseZ + " redstone_wire"));
+        } else if (tick == 170 && this.commands.get()) {
+            context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX - 2) + " " + (this.baseY - 1) + " " + (this.baseZ - 2) + " grass_block"));
+        } else if (tick == 175 && this.commands.get()) {
+            context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX - 2) + " " + this.baseY + " " + (this.baseZ - 2) + " snow_layer"));
         }
     }
 
@@ -304,6 +313,14 @@ public final class WorldScenario implements E2eScenario {
             if (this.computedLight.get()) {
                 context.check("glowstone lit its block (light update with block light 15)", this.glowstoneLight.get());
             }
+            int wire = blockAt(this.baseX - 2, this.baseY, this.baseZ);
+            context.log("wire shown as " + (wire < 0 ? "nothing" : JavaBlockStates.stateString(wire)));
+            context.check("redstone wire shows connections (not a dot)", wire > 0
+                    && JavaBlockStates.blockName(JavaBlockStates.blockId(wire)).equals("redstone_wire")
+                    && !"none".equals(JavaBlockStates.property(wire, "north")));
+            int grass = blockAt(this.baseX - 2, this.baseY - 1, this.baseZ - 2);
+            context.log("grass under snow shown as " + (grass < 0 ? "nothing" : JavaBlockStates.stateString(grass)));
+            context.check("grass under snow is snowy", grass == JavaBlockStates.parse("grass_block[snowy=true]"));
         } else {
             context.log("setblock checks skipped: this build does not forward commands");
         }

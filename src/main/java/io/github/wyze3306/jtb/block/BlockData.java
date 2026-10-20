@@ -34,12 +34,13 @@ public final class BlockData {
             BlockDataReader in = new BlockDataReader(data);
             byte[] magic = in.bytes(4);
             int version = in.u8();
-            if (!Arrays.equals(magic, new byte[]{'J', 'T', 'B', 'B'}) || version != 1) {
+            if (!Arrays.equals(magic, new byte[]{'J', 'T', 'B', 'B'}) || version != 2) {
                 throw new IOException("Unsupported " + RESOURCE + " format");
             }
             JavaBlockStates.load(in);
             BedrockBlockPalette.load(in);
             CustomBlockAllocator.initCarriers();
+            DerivedStates.init();
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot load the block tables", e);
         }

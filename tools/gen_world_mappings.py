@@ -8,7 +8,8 @@ Inputs (see src/main/resources/mappings/SOURCES.md for versions and licences):
   ViaBedrock data        custom/blockstate_mappings.json (Bedrock -> Java), java/via_mappings.json (Java ids),
                          custom/pre_waterlogged_blockstates.json, custom/potted_blockstates.json,
                          custom/banner_pattern_mappings.json, java/heightmap_blockstates.nbt
-  GeyserMC mappings      blocks.nbt (Java -> Bedrock), block_shapes.nbt (outline shapes), biomes.json
+  GeyserMC mappings      blocks.nbt (Java -> Bedrock), block_shapes.nbt (outline shapes), collisions.nbt
+                         (collision shapes), biomes.json
   mcmeta 26.3-summary    blocks/data.json (Java properties, value order, defaults)
   tools/data/java_light_26_1.json   per-block light emission / filter of the default state (PrismarineJS
                          minecraft-data 26.1, MIT), refined per state below
@@ -37,11 +38,12 @@ import nbtlib  # noqa: E402
 
 BLOCKS_FORMAT = """
 blocks.bin.gz, gzip of big-endian data:
-  "JTBB" u8 version(1)
+  "JTBB" u8 version(2)
   u16 javaBlockCount; per block: utf name (no namespace), u16 defaultStateOffset, u8 blockEntityType (0xFF none),
       u8 propertyCount, per property: utf name, u8 valueCount, utf values...
       (state ids are consecutive per block: cartesian product of the properties sorted by name, first slowest)
   u32 javaStateCount; u8[n] light (emission << 4 | opacity); u8[n] occluded faces (bit = Direction ordinal);
+      u8[n] support (bit = Direction ordinal of a sturdy face, 0x40 redstone conductor);
       u8[n] flags (1 motion blocking, 2 motion blocking without leaves, 4 has fluid, 8 air); u16[n] waterlogged twin (0xFFFF none)
   u16 bedrockNameCount; per name: utf name, u8 propertyCount, per property: utf name, u8 tag type (1 byte, 3 int,
       8 string), u8 valueCount, values (byte: i8, int: i32, string: utf)
@@ -69,6 +71,17 @@ TRIAL_SPAWNER_LIGHT = {"inactive": 0, "waiting_for_players": 4, "active": 8, "wa
 VAULT_LIGHT = {"inactive": 6, "active": 12, "unlocking": 12, "ejecting": 12}
 LIT_LIGHT = {"furnace": 13, "blast_furnace": 13, "smoker": 13, "redstone_ore": 9, "deepslate_redstone_ore": 9,
              "redstone_torch": 7, "redstone_wall_torch": 7, "redstone_lamp": 15, "campfire": 15, "soul_campfire": 10}
+
+# Vanilla getBlockSupportShape overrides (what isFaceSturdy tests): a full block for soul sand and mud, nothing
+# for leaves, the outline for snow layers. Stairs take the faces of their straight shape, so a neighbour's
+# derived shape never changes another block's connections.
+SUPPORT_FULL_BLOCKS = {"soul_sand", "mud"}
+SUPPORT_OUTLINE_BLOCKS = {"snow"}
+# Full-collision blocks that are not redstone conductors (vanilla isRedstoneConductor(Blocks::never)), and the
+# partial ones that are (Blocks::always).
+NOT_CONDUCTOR_HINTS = ("glass", "_leaves")
+NOT_CONDUCTOR_BLOCKS = {"redstone_block", "observer", "piston", "sticky_piston", "moving_piston", "glowstone", "beacon"}
+CONDUCTOR_BLOCKS = {"soul_sand", "mud"}
 
 # Bedrock states where Geyser reads the Bedrock state right and ViaBedrock does not (checked by hand).
 PREFER_GEYSER = {"minecraft:sulfur_spike[dripstone_thickness=merge,hanging=1]", "minecraft:jigsaw[facing_direction=0,rotation=0]",
@@ -266,6 +279,35 @@ def light_tables(blocks, states, shapes, light_data, pre_wet, fluid_names):
     return light, occlusion, changed
 
 
+def support_table(blocks, states, jindex, collision_nbt, shapes):
+    """Per Java state: sturdy faces (bit = Direction ordinal) and 0x40 when it conducts redstone."""
+    collisions = collision_nbt["shapes"]
+    indices = collision_nbt["indices"]
+    if len(indices) != len(states):
+        fail("Geyser collisions.nbt size %d != %d" % (len(indices), len(states)))
+    masks = {}
+    table = []
+    for sid, (b, values) in enumerate(states):
+        name = blocks[b]["name"]
+        src = sid
+        if name.endswith("_stairs") and values.get("shape") != "straight":
+            src = jindex[state_key("minecraft:" + name, dict(values, shape="straight"))]
+        if name in SUPPORT_FULL_BLOCKS:
+            key, shape = "full", FULL_CUBE
+        elif name in SUPPORT_OUTLINE_BLOCKS:
+            key, shape = ("outline", sid), shapes[src]
+        elif name.endswith("_leaves"):
+            key, shape = "empty", []
+        else:
+            key, shape = indices[src], collisions[indices[src]]
+        if key not in masks:
+            masks[key] = face_mask(shape) if shape else 0
+        conductor = name in CONDUCTOR_BLOCKS or (collisions[indices[sid]] == FULL_CUBE and name not in NOT_CONDUCTOR_BLOCKS
+                                                 and not any(h in name for h in NOT_CONDUCTOR_HINTS))
+        table.append(masks[key] | (0x40 if conductor else 0))
+    return table
+
+
 # ---------------------------------------------------------------------------------------------- block entities
 
 def block_entity_type(name, be_types):
@@ -416,6 +458,10 @@ def main():
     shapes = [shapes_nbt["shapes"][i] for i in shapes_nbt["indices"]]
     light_data = json.load(open(os.path.join(HERE, "data", "java_light_26_1.json")))
     light, occlusion, changed = light_tables(jblocks, jstates, shapes, light_data, pre_wet, fluid_names)
+    support = support_table(jblocks, jstates, jindex, nbtlib.load(os.path.join(ref, "GeyserMC_mappings/collisions.nbt")), shapes)
+    print("support: %d states with all faces sturdy, %d with some, %d redstone conductors" % (
+        sum(1 for v in support if v & 0x3F == 0x3F), sum(1 for v in support if 0 < v & 0x3F < 0x3F),
+        sum(1 for v in support if v & 0x40)))
     emitters = sum(1 for v in light if v >> 4)
     print("light: %d emitting states, %d opaque, %d with face occlusion, rules applied: %s" % (
         emitters, sum(1 for v in light if v & 15 == 15), sum(1 for v in occlusion if v), dict(changed)))
@@ -462,7 +508,7 @@ def main():
     # ---- binary
     out = Out()
     out.parts.append(b"JTBB")
-    out.u8(1)
+    out.u8(2)
     out.u16(len(jblocks))
     for b, be in zip(jblocks, block_be):
         out.utf(b["name"])
@@ -477,6 +523,7 @@ def main():
     out.u32(len(jstates))
     out.array("B", light)
     out.array("B", occlusion)
+    out.array("B", support)
     out.array("B", flags)
     out.array("H", twin)
 

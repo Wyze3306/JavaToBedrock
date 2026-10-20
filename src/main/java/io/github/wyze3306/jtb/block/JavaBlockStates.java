@@ -40,6 +40,7 @@ public final class JavaBlockStates {
     private static char[] stateBlock;
     private static byte[] light;
     private static byte[] occlusion;
+    private static byte[] support;
     private static byte[] flags;
     private static char[] waterlogged;
 
@@ -90,6 +91,7 @@ public final class JavaBlockStates {
         }
         byte[] lightData = in.bytes(total);
         byte[] occlusionData = in.bytes(total);
+        byte[] supportData = in.bytes(total);
         byte[] flagData = in.bytes(total);
         char[] twins = in.chars(total);
         blockNames = names;
@@ -102,6 +104,7 @@ public final class JavaBlockStates {
         stateBlock = owner;
         light = lightData;
         occlusion = occlusionData;
+        support = supportData;
         flags = flagData;
         waterlogged = twins;
     }
@@ -147,6 +150,59 @@ public final class JavaBlockStates {
     public static int defaultState(String name) {
         int block = blockId(name);
         return block < 0 ? -1 : blockDefaultState[block];
+    }
+
+    /**
+     * A handle on property {@code name} of a block, to read and change it in states without string
+     * comparisons; null when the block has no such property.
+     */
+    public static @Nullable Property propertyOf(int blockId, String name) {
+        String[] names = propertyNames[blockId];
+        int stride = 1;
+        for (int p = names.length - 1; p >= 0; p--) {
+            String[] v = propertyValues[blockId][p];
+            if (names[p].equals(name)) {
+                return new Property(blockId, blockFirstState[blockId], v, stride);
+            }
+            stride *= v.length;
+        }
+        return null;
+    }
+
+    /**
+     * One property of one block: value {@code i} of a state is {@code values[i]} (vanilla order, e.g.
+     * {@code true} before {@code false}).
+     *
+     * @param block      block registry id
+     * @param firstState first state id of the block
+     * @param values     the property's values
+     * @param stride     state id distance between two consecutive values
+     */
+    public record Property(int block, int firstState, String[] values, int stride) {
+
+        /** Index of the value {@code state} has; {@code state} must belong to {@link #block}. */
+        public int index(int state) {
+            return ((state - this.firstState) / this.stride) % this.values.length;
+        }
+
+        /** {@code state} with the value at {@code index}. */
+        public int with(int state, int index) {
+            return state + (index - index(state)) * this.stride;
+        }
+
+        public String value(int state) {
+            return this.values[index(state)];
+        }
+
+        /** Index of a value, or -1. */
+        public int indexOf(String value) {
+            for (int i = 0; i < this.values.length; i++) {
+                if (this.values[i].equals(value)) {
+                    return i;
+                }
+            }
+            return -1;
+        }
     }
 
     /** Value of property {@code name} in {@code state}, or null when the block has no such property. */
@@ -266,6 +322,19 @@ public final class JavaBlockStates {
     /** Faces fully covered by the state's light occlusion shape ({@code FACE_*} bits). */
     public static int occlusion(int state) {
         return occlusion[state];
+    }
+
+    /**
+     * Faces of the state that are sturdy ({@code FACE_*} bits): vanilla {@code isFaceSturdy} with the
+     * full support type, from the collision shape (stairs as if straight).
+     */
+    public static int sturdyFaces(int state) {
+        return support[state] & 0x3F;
+    }
+
+    /** Whether a redstone component next to the state treats it as a solid conductor (vanilla {@code isRedstoneConductor}). */
+    public static boolean isRedstoneConductor(int state) {
+        return (support[state] & 0x40) != 0;
     }
 
     public static boolean isAir(int state) {
