@@ -8,7 +8,6 @@ import io.github.wyze3306.jtb.auth.LoginData;
 import io.github.wyze3306.jtb.resourcepack.BedrockPackDownloader;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.skin.BedrockSkinData;
-import io.github.wyze3306.jtb.skin.JavaSkinProvider;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.cloudburstmc.protocol.bedrock.BedrockClientSession;
@@ -26,12 +25,10 @@ import org.cloudburstmc.protocol.bedrock.packet.ResourcePacksInfoPacket;
 import org.cloudburstmc.protocol.bedrock.packet.ServerToClientHandshakePacket;
 import org.cloudburstmc.protocol.bedrock.packet.StartGamePacket;
 import org.jose4j.jws.JsonWebSignature;
-import org.jspecify.annotations.Nullable;
 
 import javax.crypto.SecretKey;
 import java.security.PublicKey;
 import java.util.Base64;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * The Bedrock login sequence, from network settings up to {@code StartGame}:
@@ -54,13 +51,17 @@ final class BedrockLoginHandler {
     private final ProxySession session;
     private final BedrockClientSession bedrock;
     private final BedrockCodec codec;
+    private final LoginData login;
+    private final BedrockSkinData skin;
     private Phase phase = Phase.NETWORK_SETTINGS;
-    private @Nullable LoginData login;
 
-    BedrockLoginHandler(ProxySession session, BedrockClientSession bedrock, BedrockCodec codec) {
+    BedrockLoginHandler(ProxySession session, BedrockClientSession bedrock, BedrockCodec codec, LoginData login,
+                        BedrockSkinData skin) {
         this.session = session;
         this.bedrock = bedrock;
         this.codec = codec;
+        this.login = login;
+        this.skin = skin;
     }
 
     Phase phase() {
@@ -101,27 +102,13 @@ final class BedrockLoginHandler {
     private void onNetworkSettings(NetworkSettingsPacket settings) {
         this.bedrock.setCompression(settings.getCompressionAlgorithm());
         this.phase = Phase.LOGIN;
-
-        CompletableFuture<LoginData> identity = this.session.proxy().authProvider().login(this.session);
-        CompletableFuture<BedrockSkinData> skin = JavaSkinProvider.forProfile(this.session.getProfile(),
-                this.session.config().features().javaSkins());
-        identity.thenCombine(skin, (loginData, skinData) -> {
-            this.session.execute(() -> sendLogin(loginData, skinData));
-            return null;
-        }).exceptionally(error -> {
-            this.session.logger().warn("[{}] Bedrock authentication failed", this.session.getName(), error);
-            this.session.disconnect(Component.text("Authentification Bedrock impossible : ", NamedTextColor.RED)
-                    .append(Component.text(String.valueOf(rootMessage(error)), NamedTextColor.GRAY)));
-            return null;
-        });
+        sendLogin(this.login, this.skin);
     }
 
     private void sendLogin(LoginData loginData, BedrockSkinData skin) {
         if (!this.bedrock.isConnected()) {
             return;
         }
-        this.login = loginData;
-        this.session.setBedrockName(loginData.displayName());
         try {
             var config = this.session.config().bedrock();
             String clientJwt = ClientDataBuilder.build(this.session, loginData.keyPair(), skin,
@@ -146,10 +133,6 @@ final class BedrockLoginHandler {
 
     private void onHandshake(ServerToClientHandshakePacket packet) {
         LoginData loginData = this.login;
-        if (loginData == null) {
-            this.session.disconnect("Handshake Bedrock inattendu");
-            return;
-        }
         try {
             JsonWebSignature jws = new JsonWebSignature();
             jws.setCompactSerialization(packet.getHandshakeWebToken());
@@ -187,13 +170,5 @@ final class BedrockLoginHandler {
                 return true;
             }
         }
-    }
-
-    private static Object rootMessage(Throwable error) {
-        Throwable cause = error;
-        while (cause.getCause() != null && cause.getCause() != cause) {
-            cause = cause.getCause();
-        }
-        return cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName();
     }
 }

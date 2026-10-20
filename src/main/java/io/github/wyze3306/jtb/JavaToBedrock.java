@@ -11,8 +11,9 @@ import io.github.wyze3306.jtb.network.java.JavaServer;
 import io.github.wyze3306.jtb.session.SessionManager;
 import io.github.wyze3306.jtb.translator.TranslatorRegistry;
 import io.github.wyze3306.jtb.translator.Translators;
-import io.netty.channel.DefaultEventLoopGroup;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.MultiThreadIoEventLoopGroup;
+import io.netty.channel.local.LocalIoHandler;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,7 +86,9 @@ public final class JavaToBedrock {
         LOGGER.info("Loaded {} Bedrock and {} Java packet translators", this.translators.bedrockCount(), this.translators.javaCount());
 
         int cores = Runtime.getRuntime().availableProcessors();
-        this.sessionLoops = new DefaultEventLoopGroup(Math.max(2, cores), new DefaultThreadFactory("jtb-session", true));
+        // Session loops run translation only (no sockets), hence the local transport handler.
+        this.sessionLoops = new MultiThreadIoEventLoopGroup(Math.max(2, cores), new DefaultThreadFactory("jtb-session", true),
+                LocalIoHandler.newFactory());
         int workerThreads = this.config.world().chunkThreads() > 0 ? this.config.world().chunkThreads() : Math.max(1, cores - 1);
         this.workers = Executors.newFixedThreadPool(workerThreads, new DefaultThreadFactory("jtb-worker", true));
 

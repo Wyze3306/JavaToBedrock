@@ -1,6 +1,9 @@
 package io.github.wyze3306.jtb.network.bedrock;
 
 import io.github.wyze3306.jtb.JavaToBedrock;
+import io.github.wyze3306.jtb.auth.LoginData;
+import io.github.wyze3306.jtb.skin.BedrockSkinData;
+import io.github.wyze3306.jtb.skin.JavaSkinProvider;
 import io.github.wyze3306.jtb.config.ProxyConfig;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.netty.bootstrap.Bootstrap;
@@ -23,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
@@ -71,10 +75,41 @@ public final class BedrockConnector implements AutoCloseable {
     }
 
     /**
-     * Connects the session to the configured Bedrock server. Runs the login on success, kicks the
-     * Java player with an explanation on failure.
+     * Authenticates the player (configured {@link io.github.wyze3306.jtb.auth.AuthProvider}) and
+     * fetches their skin in parallel, then connects. Authentication happens before the Bedrock
+     * connection exists so a slow sign-in (Microsoft device code) cannot time the connection out.
      */
-    public void connect(ProxySession session) {
+    public void start(ProxySession session) {
+        CompletableFuture<LoginData> identity = this.proxy.authProvider().login(session);
+        CompletableFuture<BedrockSkinData> skin = JavaSkinProvider.forProfile(session.getProfile(),
+                this.proxy.config().features().javaSkins());
+        identity.thenCombine(skin, (loginData, skinData) -> {
+            session.execute(() -> connect(session, loginData, skinData));
+            return null;
+        }).exceptionally(error -> {
+            LOGGER.warn("[{}] Bedrock authentication failed", session.getName(), error);
+            session.disconnect(Component.text("Authentification Bedrock impossible : ", NamedTextColor.RED)
+                    .append(Component.text(String.valueOf(rootMessage(error)), NamedTextColor.GRAY)));
+            return null;
+        });
+    }
+
+    private static Object rootMessage(Throwable error) {
+        Throwable cause = error;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName();
+    }
+
+    /**
+     * Connects the session to the configured Bedrock server and runs the login with {@code login}.
+     * Kicks the Java player with an explanation when the server cannot be reached.
+     */
+    public void connect(ProxySession session, LoginData login, BedrockSkinData skin) {
+        if (session.isClosed()) {
+            return;
+        }
         ProxyConfig.Bedrock config = this.proxy.config().bedrock();
         InetSocketAddress address = new InetSocketAddress(config.address(), config.port());
         BedrockCodec codec = codecForServer();
@@ -92,7 +127,8 @@ public final class BedrockConnector implements AutoCloseable {
                         bedrock.setCodec(codec);
                         CodecRegistries.install(bedrock);
                         session.setBedrockSession(bedrock);
-                        bedrock.setPacketHandler(new BedrockPacketDispatcher(session, bedrock, new BedrockLoginHandler(session, bedrock, codec)));
+                        bedrock.setPacketHandler(new BedrockPacketDispatcher(session, bedrock,
+                                new BedrockLoginHandler(session, bedrock, codec, login, skin)));
                         RequestNetworkSettingsPacket request = new RequestNetworkSettingsPacket();
                         request.setClientNetworkVersion(codec.getProtocolVersion());
                         bedrock.sendPacketImmediately(request);

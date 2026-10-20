@@ -226,7 +226,7 @@ final class JavaConnectionListener extends SessionAdapter {
         proxySession.execute(() -> {
             proxySession.get(JavaKeepAlive.KEY).start();
             proxySession.get(JavaConfiguration.KEY).begin();
-            this.proxy.bedrockConnector().connect(proxySession);
+            this.proxy.bedrockConnector().start(proxySession);
         });
     }
 
