@@ -1,5 +1,6 @@
 package io.github.wyze3306.jtb.e2e.scenario;
 
+import net.kyori.adventure.key.Key;
 import org.cloudburstmc.nbt.NbtMap;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.EquipmentSlot;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ClickItemAction;
@@ -15,8 +16,9 @@ import org.geysermc.mcprotocollib.protocol.data.game.item.component.Equippable;
  * Server-defined (component-based) items: needs the PowerNukkitX test plugin {@code JtbE2eItems}
  * (items {@code jtb:ruby} and {@code jtb:ruby_helmet}, see {@code ResourcePackScenario}) in the
  * server's {@code plugins} directory, and an operator tester. Checks how they look on Java (base
- * item, name, stack size, equipment) and that clicks move them losslessly on the server (shift-click
- * into the helmet slot, split, merge). Run it for 40 s.
+ * item, name, stack size, equipment, and the converted pack's item model and armour asset when the
+ * server has the packs of {@code resourcepack.TestPacks}) and that clicks move them losslessly on the
+ * server (shift-click into the helmet slot, split, merge). Run it for 60 s.
  */
 public final class InventoryCustomItemsScenario extends InventoryScript {
 
@@ -34,6 +36,18 @@ public final class InventoryCustomItemsScenario extends InventoryScript {
         expect("custom wearable: head equipment, one per stack", () -> count(item(0, 37), this.paper) == 1
                 && "jtb:ruby_helmet".equals(identity(item(0, 37))) && equipmentSlot(item(0, 37)) == EquipmentSlot.HELMET
                 && Integer.valueOf(1).equals(component(item(0, 37), DataComponentTypes.MAX_STACK_SIZE)));
+        // With the converted server pack (TestPacks in resource_packs), the pack's model and armour asset.
+        expect("custom item model from the converted pack, only when the client has it", () -> {
+            Key model = component(item(0, 36), DataComponentTypes.ITEM_MODEL);
+            return this.context.count("ClientboundResourcePackPushPacket") > 0
+                    ? Key.key("jtb", "item/jtb/ruby").equals(model) : model == null;
+        });
+        expect("custom armour asset from the converted pack", () -> {
+            Equippable equippable = component(item(0, 37), DataComponentTypes.EQUIPPABLE);
+            Key asset = equippable == null ? null : equippable.model();
+            return this.context.count("ClientboundResourcePackPushPacket") > 0
+                    ? Key.key("jtb", "jtb/ruby_helmet").equals(asset) : asset == null;
+        });
         step("equip", 15, () -> click(0, 37, ContainerActionType.SHIFT_CLICK_ITEM, ShiftClickItemAction.LEFT_CLICK));
         expect("shift click puts the custom helmet on the head", () -> "jtb:ruby_helmet".equals(identity(item(0, 5))) && empty(0, 37));
         step("split", 2, () -> click(0, 36, ContainerActionType.CLICK_ITEM, ClickItemAction.RIGHT_CLICK));
