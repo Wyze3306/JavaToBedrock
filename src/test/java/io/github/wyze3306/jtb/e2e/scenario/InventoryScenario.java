@@ -4,6 +4,7 @@ import org.cloudburstmc.math.vector.Vector3i;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ClickItemAction;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerActionType;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerType;
+import org.geysermc.mcprotocollib.protocol.data.game.inventory.CreativeGrabAction;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.DropItemAction;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.FillStackAction;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.MoveToHotbarAction;
@@ -212,6 +213,15 @@ public final class InventoryScenario extends InventoryScript {
         step("check creative clear", 1, () -> check("creative slot cleared", empty(0, 40)));
         step("close creative inventory", 15, this::close);
         step("check parked items", 1, () -> check("closing the creative inventory leaves no carried item", cursorEmpty()));
+        step("creative chest", 30, () -> use(this.chest));
+        step("clone", 15, () -> click(this.openId, 13, ContainerActionType.CREATIVE_GRAB_MAX_STACK, CreativeGrabAction.GRAB));
+        step("check clone", 1, () -> check("creative middle click: a full stack of the slot's item on the cursor",
+                count(this.cursor, this.stick) == 64 && is(this.openId, 13, this.stick, 4)));
+        step("place clone", 15, () -> click(this.openId, 20, ContainerActionType.CLICK_ITEM, ClickItemAction.LEFT_CLICK));
+        step("close creative chest", 20, this::close);
+        step("reopen creative chest", 30, () -> use(this.chest));
+        step("check cloned stack", 1, () -> check("the cloned stack is in the chest on the server", is(this.openId, 20, this.stick, 64)));
+        step("close creative chest 2", 15, this::close);
         step("survival", 30, () -> command("gamemode survival " + this.name));
         serverCount("diamond", 0);
         step("done", 1, () -> this.context.log("Inventory scenario finished"));

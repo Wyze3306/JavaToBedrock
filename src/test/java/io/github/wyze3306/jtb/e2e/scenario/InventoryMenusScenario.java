@@ -25,7 +25,7 @@ import java.util.OptionalInt;
  * (smelting, progress properties), stonecutter (recipe button, craft all), enchanting table (options,
  * button), anvil (rename), grindstone (disenchant), smithing table (netherite upgrade), brewing stand,
  * hopper, barrel, ender chest, loom (pattern button), beacon (payment), book and quill (writing,
- * signing), hotbar selection, and a chest to check on the server what the anvil, the grindstone, the
+ * signing), hotbar selection, a double chest placed by the player, and a chest to check on the server what the anvil, the grindstone, the
  * loom and the book editing produced. Items go in with shift-clicks, which follow each menu's own
  * rules. The tester must be an operator. Run it for 220 s.
  */
@@ -49,6 +49,7 @@ public final class InventoryMenusScenario extends InventoryScript {
     private final int writableBook = id("writable_book");
     private final int writtenBook = id("written_book");
     private final int dirt = id("dirt");
+    private final int chestItem = id("chest");
 
     private int bookSlot;
     private int chatMark;
@@ -114,6 +115,7 @@ public final class InventoryMenusScenario extends InventoryScript {
             command("give " + this.name + " red_dye 1");
             command("give " + this.name + " writable_book 1");
             command("give " + this.name + " dirt 1");
+            command("give " + this.name + " chest 3");
         });
         step("check given", 1, () -> check("given items arrived", total(0, 9, 45, this.sword) == 2
                 && total(0, 9, 45, this.cobblestone) == 16));
@@ -331,6 +333,22 @@ public final class InventoryMenusScenario extends InventoryScript {
                     && bookPages(item(this.openId, book)) == 2);
         });
         step("close chest 4", 15, this::close);
+
+        // -------------------------------------------------------------- double chest placed by the player
+        step("chests to hotbar", 15, () -> click(0, find(0, 9, 45, this.chestItem), ContainerActionType.MOVE_TO_HOTBAR_SLOT,
+                MoveToHotbarAction.SLOT_7));
+        step("close inventory 3", 10, this::close);
+        step("select chests", 10, () -> this.context.send(new ServerboundSetCarriedItemPacket(6)));
+        // An L of three chests: whatever the facing, two of them pair.
+        step("place chest 1", 15, () -> use(this.feet.add(2, -1, 3)));
+        step("place chest 2", 15, () -> use(this.feet.add(3, -1, 3)));
+        step("place chest 3", 15, () -> use(this.feet.add(2, -1, 4)));
+        step("open double chest", 30, () -> use(this.feet.add(2, 0, 3)));
+        step("check double chest", 1, () -> check("a double chest opens a Java 9x6 screen",
+                this.openType == ContainerType.GENERIC_9X6 && size(this.openId) == 90));
+        step("store in double chest", 15, () -> shiftClick(54, 90, this.netheritePickaxe));
+        step("check double store", 1, () -> check("shift click stores in the double chest", is(this.openId, 0, this.netheritePickaxe, 1)));
+        step("close double chest", 15, this::close);
         step("done", 1, () -> this.context.log("Inventory menus scenario finished"));
     }
 
