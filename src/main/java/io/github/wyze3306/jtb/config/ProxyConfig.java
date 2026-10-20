@@ -13,10 +13,16 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.UnaryOperator;
 
 /**
  * Immutable view of {@code config.yml}. Missing keys fall back to the defaults shipped in the jar,
  * so an old configuration file keeps working when new options are added.
+ * <p>
+ * Every value can be overridden by an environment variable named {@code JTB_} followed by its path
+ * in upper case with dots and dashes replaced by underscores ({@code bedrock.address} &rarr;
+ * {@code JTB_BEDROCK_ADDRESS}, {@code resource-packs.public-url} &rarr;
+ * {@code JTB_RESOURCE_PACKS_PUBLIC_URL}), which is how containers are usually configured.
  */
 public final class ProxyConfig {
 
@@ -90,6 +96,13 @@ public final class ProxyConfig {
      * @throws IllegalArgumentException if a value has the wrong type or an unknown enum constant
      */
     public static ProxyConfig load(Path file) throws IOException {
+        return load(file, System::getenv);
+    }
+
+    /**
+     * Same as {@link #load(Path)} with the environment variables read from {@code environment}.
+     */
+    static ProxyConfig load(Path file, UnaryOperator<String> environment) throws IOException {
         Map<String, Object> defaults = readDefaults();
         if (Files.notExists(file)) {
             try (InputStream in = defaultsStream()) {
@@ -100,7 +113,7 @@ public final class ProxyConfig {
         try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             user = yaml().load(reader);
         }
-        return new ProxyConfig(new Section("", user == null ? Map.of() : user, defaults));
+        return new ProxyConfig(new Section("", user == null ? Map.of() : user, defaults, environment));
     }
 
     /**
@@ -108,7 +121,7 @@ public final class ProxyConfig {
      */
     public static ProxyConfig defaults() {
         try {
-            return new ProxyConfig(new Section("", Map.of(), readDefaults()));
+            return new ProxyConfig(new Section("", Map.of(), readDefaults(), name -> null));
         } catch (IOException e) {
             throw new IllegalStateException("Default configuration missing from the jar", e);
         }
@@ -154,9 +167,10 @@ public final class ProxyConfig {
     }
 
     /**
-     * A YAML mapping with a parallel mapping of defaults.
+     * A YAML mapping with a parallel mapping of defaults and the environment overriding both.
      */
-    private record Section(String path, Map<String, Object> values, Map<String, Object> defaults) {
+    private record Section(String path, Map<String, Object> values, Map<String, Object> defaults,
+                           UnaryOperator<String> environment) {
 
         @SuppressWarnings("unchecked")
         Section section(String key) {
@@ -164,11 +178,16 @@ public final class ProxyConfig {
             Object def = this.defaults.get(key);
             return new Section(this.path + key + ".",
                     value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of(),
-                    def instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of());
+                    def instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of(),
+                    this.environment);
         }
 
         private Object raw(String key) {
-            Object value = this.values.get(key);
+            String variable = "JTB_" + (this.path + key).toUpperCase(Locale.ROOT).replace('.', '_').replace('-', '_');
+            Object value = this.environment.apply(variable);
+            if (value == null) {
+                value = this.values.get(key);
+            }
             if (value == null) {
                 value = this.defaults.get(key);
             }

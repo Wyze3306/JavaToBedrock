@@ -31,6 +31,19 @@ Client Java 26.3 ──TCP──▶ JavaToBedrock ──RakNet──▶ Serveur 
 
 Commandes de la console du proxy : `list`, `stop`.
 
+### Avec Docker
+
+```bash
+docker build -t javatobedrock .
+docker run -d -p 25565:25565 -p 8765:8765 -v ./jtb:/data \
+  -e JTB_BEDROCK_ADDRESS=mon.serveur.bedrock -e JTB_BEDROCK_AUTH=offline javatobedrock
+```
+
+`docker/docker-compose.yml` lance un serveur PowerNukkitX et le proxy devant lui.
+Chaque option de `config.yml` peut être remplacée par une variable d'environnement `JTB_` + son
+chemin en majuscules, points et tirets remplacés par `_` : `bedrock.address` → `JTB_BEDROCK_ADDRESS`,
+`resource-packs.public-url` → `JTB_RESOURCE_PACKS_PUBLIC_URL`.
+
 ## Authentification côté Bedrock
 
 | Mode (`bedrock.auth`) | Pour quoi | Ce qu'il faut côté serveur |
