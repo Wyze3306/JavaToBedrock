@@ -1,13 +1,10 @@
 package io.github.wyze3306.jtb.player;
 
-import io.github.wyze3306.jtb.entity.EntityTracker;
 import io.github.wyze3306.jtb.session.ProxySession;
-import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.protocol.bedrock.data.PlayStatus;
 import org.cloudburstmc.protocol.bedrock.data.PlayerRespawnState;
 import org.cloudburstmc.protocol.bedrock.data.ServerboundLoadingScreenPacketType;
 import org.cloudburstmc.protocol.bedrock.packet.InteractPacket;
-import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
 import org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlayStatusPacket;
 import org.cloudburstmc.protocol.bedrock.packet.RespawnPacket;
@@ -38,10 +35,7 @@ final class SpawnTranslators {
         }
         player.setSpawned(true);
 
-        InteractPacket interact = new InteractPacket();
-        interact.setAction(InteractPacket.Action.INTERACT_UPDATE);
-        interact.setTargetRuntimeID(0);
-        session.sendBedrock(interact);
+        Interactions.interact(session, InteractPacket.Action.INTERACT_UPDATE, 0);
         ServerboundLoadingScreenPacket loading = new ServerboundLoadingScreenPacket();
         loading.setType(ServerboundLoadingScreenPacketType.END_LOADING_SCREEN);
         session.sendBedrock(loading);
@@ -52,41 +46,30 @@ final class SpawnTranslators {
         if (player.position().getY() < STAGING_Y) {
             player.teleport(player.position(), player.yaw(), player.pitch());
         }
+        player.stats().sendAttributes();
         session.sendJava(new ClientboundGameEventPacket(GameEvent.LEVEL_CHUNKS_LOAD_START, null));
     }
 
     /** The server found where the player (re)spawns: eye position. */
     static void respawn(ProxySession session, RespawnPacket packet) {
-        if (packet.getState() != PlayerRespawnState.READY_TO_SPAWN) {
-            return;
+        if (packet.getState() == PlayerRespawnState.READY_TO_SPAWN) {
+            session.get(PlayerState.KEY).onReadyToSpawn(packet.getPosition());
         }
-        PlayerState player = session.get(PlayerState.KEY);
-        Vector3f feet = packet.getPosition().sub(0, PlayerState.EYE_HEIGHT, 0);
-        player.teleport(feet, player.yaw(), player.pitch());
     }
 
     /**
      * PowerNukkitX measures latency every tick and matches the answer by its exact timestamp; a vanilla
-     * client answers with the same value.
+     * client answers with the same value. Packets not from the server are the echoes of the proxy's
+     * own latency pings.
      */
     static void networkStackLatency(ProxySession session, NetworkStackLatencyPacket packet) {
         if (!packet.isFromServer()) {
+            session.get(PlayerState.KEY).interactions().onPingEcho(packet.getCreationTime());
             return;
         }
         NetworkStackLatencyPacket reply = new NetworkStackLatencyPacket();
         reply.setCreationTime(packet.getCreationTime());
         reply.setFromServer(false);
         session.sendBedrock(reply);
-    }
-
-    /** Server-side moves of the local player (teleports, corrections). */
-    static void movePlayer(ProxySession session, MovePlayerPacket packet) {
-        PlayerState player = session.get(PlayerState.KEY);
-        if (!player.isLocal(packet.getPlayerRuntimeID())) {
-            session.get(EntityTracker.KEY).onRemotePlayerMove(packet);
-            return;
-        }
-        Vector3f feet = packet.getPosition().sub(0, PlayerState.EYE_HEIGHT, 0);
-        player.teleport(feet, packet.getRotation().getY(), packet.getRotation().getX());
     }
 }
