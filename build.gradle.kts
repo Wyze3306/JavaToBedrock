@@ -60,6 +60,11 @@ tasks.withType<JavaCompile>().configureEach {
 tasks.test {
     useJUnitPlatform()
     maxHeapSize = "2g"
+    // Assertion messages in the console: CI logs are often all there is.
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
 }
 
 // End-to-end check against a running proxy: gradle runHeadlessClient -Phost=127.0.0.1 -Pport=25565

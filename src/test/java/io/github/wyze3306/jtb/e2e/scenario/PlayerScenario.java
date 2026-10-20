@@ -23,6 +23,7 @@ import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.play
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.player.ClientboundSetExperiencePacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.player.ClientboundSetHealthPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundGameEventPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.ServerboundChatCommandPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.ServerboundClientCommandPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.ServerboundClientTickEndPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.level.ServerboundPlayerInputPacket;
@@ -54,6 +55,8 @@ public final class PlayerScenario implements E2eScenario {
     private static final int WALK = 60, SPRINT = 100, JUMP = 130, SNEAK = 150, PROBE = 185, CREATIVE = 215,
             FLY = 235, DIG = 260, SURVIVAL = 285, CLIMB = 305, FALL = 335, RESPAWN_WAIT = 400, END = 520;
     private static final double PROBE_TOLERANCE = 0.15;
+    /** Height above the ground of the stone block the fall ends on. */
+    private static final int PLATFORM = 35;
 
     private final List<ClientboundPlayerPositionPacket> teleports = new CopyOnWriteArrayList<>();
     private final List<GameMode> gameModes = new CopyOnWriteArrayList<>();
@@ -172,16 +175,22 @@ public final class PlayerScenario implements E2eScenario {
         } else if (tick < CLIMB) {
             if (tick == SURVIVAL) {
                 context.send(new ServerboundChangeGameModePacket(GameMode.SURVIVAL));
+            } else if (tick == SURVIVAL + 5) {
+                // The fall ends on a stone block high above the terrain: water nearby, a village's hay
+                // bales or beds would soften a fall to the ground.
+                context.send(new ServerboundChatCommandPacket("setblock " + (int) Math.floor(context.x()) + " "
+                        + ((int) Math.floor(this.groundY) + PLATFORM - 1) + " " + (int) Math.floor(context.z()) + " stone"));
             }
         } else if (tick < FALL) {
-            // Climb 30 blocks (Bedrock servers do not check flight): the way down kills.
-            context.setPosition(context.x(), this.groundY + (tick - CLIMB + 1), context.z());
+            // Climb 30 blocks above the platform (Bedrock servers do not check flight): the way down kills.
+            context.setPosition(context.x(), this.groundY + (tick - CLIMB + 1) * (PLATFORM + 30) / (double) (FALL - CLIMB), context.z());
             sendPosition(context, false);
         } else if (tick < RESPAWN_WAIT) {
             int t = tick - FALL;
-            double y = Math.max(this.groundY, this.groundY + 30 - t * 3);
+            double landing = Math.floor(this.groundY) + PLATFORM;
+            double y = Math.max(landing, landing + 30 - t * 3);
             context.setPosition(context.x(), y, context.z());
-            sendPosition(context, y == this.groundY);
+            sendPosition(context, y == landing);
         } else if (tick < END) {
             if (this.death != null && !this.respawnRequested) {
                 this.respawnRequested = true;

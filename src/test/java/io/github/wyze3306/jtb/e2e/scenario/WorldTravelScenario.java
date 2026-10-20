@@ -22,7 +22,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Moves the player around with commands (needs {@code Tester<N>} in ops.txt and a build that forwards
  * commands): a far teleport (old chunks forgotten, cache centre follows, new chunks arrive), then the
- * nether and back (Java respawns into the right dimension type, nether chunks have no sky light).
+ * nether and back (Java respawns into the right dimension type, nether chunks have no sky light),
+ * protected by fire resistance and resistance: the nether spawn can be in lava.
  */
 public final class WorldTravelScenario implements E2eScenario {
 
@@ -98,6 +99,11 @@ public final class WorldTravelScenario implements E2eScenario {
             case 60 -> {
                 this.phase.set(1);
                 context.send(new ServerboundChatCommandPacket("tp @s " + FAR + " 120 " + FAR));
+            }
+            case 240 -> {
+                // The nether spawn may be in the lava sea: the trip must not end on a death screen.
+                context.send(new ServerboundChatCommandPacket("effect @s fire_resistance 120 0 true"));
+                context.send(new ServerboundChatCommandPacket("effect @s resistance 120 4 true"));
             }
             case 260 -> {
                 this.phase.set(2);

@@ -35,13 +35,17 @@ import java.util.concurrent.atomic.AtomicInteger;
  * player, valid biomes, heightmaps and computed light; block and light updates only for chunks the
  * client has; and, when the proxy forwards commands (needs {@code Tester<N>} in the server's
  * ops.txt), that {@code /setblock} changes show up as block updates with light, and with the states
- * Java derives from neighbours (redstone wire connections, snowy grass).
+ * Java derives from neighbours (redstone wire connections, snowy grass). Those are built
+ * {@link #DERIVED_UP} blocks above the player in a space cleared with {@code /fill}: at a spawn by the
+ * sea, water would wash the wire away and turn the grass into dirt.
  */
 public final class WorldScenario implements E2eScenario {
 
     private static final int OVERWORLD_SECTIONS = 24;
     private static final int MIN_Y = -64;
     private static final int BIOME_REGISTRY_SIZE = 67;
+    /** Height of the redstone and snow tests above the player's feet. */
+    private static final int DERIVED_UP = 8;
 
     private final Map<Long, ChunkSection[]> chunks = new ConcurrentHashMap<>();
     private final AtomicInteger decodeFailures = new AtomicInteger();
@@ -260,14 +264,18 @@ public final class WorldScenario implements E2eScenario {
             context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX + 2) + " " + (this.baseY + 1) + " " + this.baseZ + " glowstone"));
         } else if (tick == 140 && this.commands.get()) {
             context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX + 2) + " " + (this.baseY + 1) + " " + this.baseZ + " air"));
+        } else if (tick == 155 && this.commands.get()) {
+            int y = this.baseY + DERIVED_UP;
+            context.send(new ServerboundChatCommandPacket("fill " + (this.baseX - 3) + " " + (y - 1) + " " + (this.baseZ - 3) + " "
+                    + (this.baseX - 1) + " " + (y + 2) + " " + (this.baseZ + 1) + " air"));
         } else if (tick == 160 && this.commands.get()) {
-            context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX - 2) + " " + (this.baseY - 1) + " " + this.baseZ + " stone"));
+            context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX - 2) + " " + (this.baseY + DERIVED_UP - 1) + " " + this.baseZ + " stone"));
         } else if (tick == 165 && this.commands.get()) {
-            context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX - 2) + " " + this.baseY + " " + this.baseZ + " redstone_wire"));
+            context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX - 2) + " " + (this.baseY + DERIVED_UP) + " " + this.baseZ + " redstone_wire"));
         } else if (tick == 170 && this.commands.get()) {
-            context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX - 2) + " " + (this.baseY - 1) + " " + (this.baseZ - 2) + " grass_block"));
+            context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX - 2) + " " + (this.baseY + DERIVED_UP - 1) + " " + (this.baseZ - 2) + " grass_block"));
         } else if (tick == 175 && this.commands.get()) {
-            context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX - 2) + " " + this.baseY + " " + (this.baseZ - 2) + " snow_layer"));
+            context.send(new ServerboundChatCommandPacket("setblock " + (this.baseX - 2) + " " + (this.baseY + DERIVED_UP) + " " + (this.baseZ - 2) + " snow_layer"));
         }
     }
 
@@ -313,12 +321,12 @@ public final class WorldScenario implements E2eScenario {
             if (this.computedLight.get()) {
                 context.check("glowstone lit its block (light update with block light 15)", this.glowstoneLight.get());
             }
-            int wire = blockAt(this.baseX - 2, this.baseY, this.baseZ);
+            int wire = blockAt(this.baseX - 2, this.baseY + DERIVED_UP, this.baseZ);
             context.log("wire shown as " + (wire < 0 ? "nothing" : JavaBlockStates.stateString(wire)));
             context.check("redstone wire shows connections (not a dot)", wire > 0
                     && JavaBlockStates.blockName(JavaBlockStates.blockId(wire)).equals("redstone_wire")
                     && !"none".equals(JavaBlockStates.property(wire, "north")));
-            int grass = blockAt(this.baseX - 2, this.baseY - 1, this.baseZ - 2);
+            int grass = blockAt(this.baseX - 2, this.baseY + DERIVED_UP - 1, this.baseZ - 2);
             context.log("grass under snow shown as " + (grass < 0 ? "nothing" : JavaBlockStates.stateString(grass)));
             context.check("grass under snow is snowy", grass == JavaBlockStates.parse("grass_block[snowy=true]"));
         } else {

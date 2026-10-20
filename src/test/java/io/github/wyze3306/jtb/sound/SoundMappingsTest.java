@@ -63,7 +63,9 @@ class SoundMappingsTest {
 
     /** LevelSoundEvents the Bedrock data itself leaves silent. */
     private static final Set<String> SILENT_SOUND_EVENTS = Set.of("undefined", "default", "haggle.idle", "item.fizz",
-            "jump.prevent", "mob.warning.baby", "scared", "pushed_by_player", "note", "record.null");
+            "jump.prevent", "mob.warning.baby", "scared", "pushed_by_player", "note", "record.null",
+            // Newer than Bedrock 1.26.50 (protocol snapshots of the next version): no Java 26.3 sound.
+            "ice_ball.break");
 
     /** LevelSoundEvents a Bedrock server sends all the time; every one must sound on Java. */
     private static final List<String> COMMON_SOUND_EVENTS = List.of("hit", "step", "break", "place", "hurt", "death", "ambient",
