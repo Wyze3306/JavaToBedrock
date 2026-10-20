@@ -227,12 +227,14 @@ public final class JavaConfiguration implements SessionState {
         if (!this.reconfiguring) {
             sendRegistries();
         }
+        this.session.get(JavaKeepAlive.KEY).setPaused(true);
         this.session.sendJavaDirect(new ClientboundFinishConfigurationPacket());
     }
 
     void onClientFinished() {
         this.reconfiguring = false;
         this.session.enterGame();
+        this.session.get(JavaKeepAlive.KEY).setPaused(false);
         List<Runnable> listeners = List.copyOf(this.gameStartListeners);
         this.gameStartListeners.clear();
         for (Runnable listener : listeners) {
@@ -254,6 +256,7 @@ public final class JavaConfiguration implements SessionState {
         this.reconfigurationAcknowledged = false;
         this.finishSent = false;
         this.session.enterConfiguration();
+        this.session.get(JavaKeepAlive.KEY).setPaused(true);
         MinecraftProtocol protocol = (MinecraftProtocol) this.session.javaSession().getPacketProtocol();
         // The outbound state must change right after this packet is written, before anything else.
         this.session.javaSession().send(new ClientboundStartConfigurationPacket(),
@@ -270,6 +273,7 @@ public final class JavaConfiguration implements SessionState {
 
     void onReconfigurationAcknowledged() {
         this.reconfigurationAcknowledged = true;
+        this.session.get(JavaKeepAlive.KEY).setPaused(false);
         tryFinish();
     }
 

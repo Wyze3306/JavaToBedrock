@@ -19,7 +19,6 @@ import java.net.SocketAddress;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Locale;
-import java.util.Queue;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -50,7 +49,7 @@ public final class ProxySession {
     private final GameProfile profile;
     private final EventLoop eventLoop;
     private final Object[] states = new Object[Math.max(64, StateKey.count() + 16)];
-    private final Queue<Packet> pendingGamePackets = new ArrayDeque<>();
+    private final ArrayDeque<Packet> pendingGamePackets = new ArrayDeque<>();
 
     private @Nullable BedrockClientSession bedrockSession;
     private volatile JavaPhase javaPhase = JavaPhase.CONFIGURATION;
@@ -202,6 +201,19 @@ public final class ProxySession {
                 this.pendingGamePackets.add(packet);
             }
         });
+    }
+
+    /**
+     * Queues the Java login (play) packet ahead of every play packet already queued: the Java client
+     * requires it first, while Bedrock servers send a few packets before {@code StartGame}. Must run on
+     * the event loop, while the client is still configuring.
+     */
+    public void sendJavaLogin(Packet loginPacket) {
+        if (this.javaPhase == JavaPhase.CONFIGURATION) {
+            this.pendingGamePackets.addFirst(loginPacket);
+        } else {
+            this.javaSession.send(loginPacket);
+        }
     }
 
     /**

@@ -25,6 +25,7 @@ public final class JavaKeepAlive implements SessionState {
     private long pendingId = -1;
     private long sentAt;
     private volatile int latencyMs;
+    private boolean paused;
 
     private JavaKeepAlive(ProxySession session) {
         this.session = session;
@@ -41,6 +42,9 @@ public final class JavaKeepAlive implements SessionState {
             return;
         }
         long now = System.currentTimeMillis();
+        if (this.paused) {
+            return;
+        }
         if (this.pendingId != -1) {
             if (now - this.sentAt > TIMEOUT_MS) {
                 this.session.disconnect(Component.translatable("disconnect.timeout"));
@@ -51,6 +55,19 @@ public final class JavaKeepAlive implements SessionState {
             this.pendingId = now;
             this.sentAt = now;
             this.session.sendJavaDirect(new ClientboundKeepAlivePacket(now));
+        }
+    }
+
+    /**
+     * Stops sending while the protocol state is changing: between our "finish configuration" and the
+     * client's acknowledgement the client already decodes play packets, so a configuration keep-alive
+     * would be misread (its id is a different packet in the play state).
+     */
+    void setPaused(boolean paused) {
+        this.paused = paused;
+        if (!paused) {
+            // The clock restarts so a pause never counts towards the timeout.
+            this.sentAt = System.currentTimeMillis();
         }
     }
 
