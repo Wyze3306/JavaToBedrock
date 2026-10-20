@@ -1,0 +1,822 @@
+package io.github.wyze3306.jtb.world;
+
+import io.github.wyze3306.jtb.block.BlockMapper;
+import io.github.wyze3306.jtb.block.JavaBlockStates;
+import io.github.wyze3306.jtb.config.ProxyConfig;
+import io.github.wyze3306.jtb.player.PlayerState;
+import io.github.wyze3306.jtb.session.ProxySession;
+import io.github.wyze3306.jtb.world.blockentity.BlockEntityTranslator;
+import io.github.wyze3306.jtb.world.chunk.BedrockChunkDecoder;
+import io.github.wyze3306.jtb.world.chunk.BiomeTable;
+import io.github.wyze3306.jtb.world.chunk.BlockStorage;
+import io.github.wyze3306.jtb.world.chunk.ChunkLayout;
+import io.github.wyze3306.jtb.world.chunk.ChunkSection;
+import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import org.cloudburstmc.math.vector.Vector3i;
+import org.cloudburstmc.nbt.NbtMap;
+import org.cloudburstmc.protocol.bedrock.data.payload.chunk.SubChunkPacketData;
+import org.cloudburstmc.protocol.bedrock.data.payload.chunk.SubChunkRequestResult;
+import org.cloudburstmc.protocol.bedrock.data.payload.common.DimensionType;
+import org.cloudburstmc.protocol.bedrock.packet.LevelChunkPacket;
+import org.cloudburstmc.protocol.bedrock.packet.SubChunkPacket;
+import org.cloudburstmc.protocol.bedrock.packet.SubChunkRequestPacket;
+import org.geysermc.mcprotocollib.network.packet.Packet;
+import org.geysermc.mcprotocollib.protocol.data.game.level.block.BlockChangeEntry;
+import org.geysermc.mcprotocollib.protocol.data.game.level.block.BlockEntityInfo;
+import org.geysermc.mcprotocollib.protocol.data.game.level.block.BlockEntityType;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundBlockEntityDataPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundBlockUpdatePacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundChunkBatchFinishedPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundChunkBatchStartPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundForgetLevelChunkPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundLevelChunkWithLightPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundLightUpdatePacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundSectionBlocksUpdatePacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundSetChunkCacheCenterPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundSetChunkCacheRadiusPacket;
+import org.jspecify.annotations.Nullable;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * The chunks of the current dimension, from Bedrock packets to Java packets. Lives on the session
+ * loop; the heavy work runs elsewhere:
+ * <ol>
+ *     <li>a Bedrock chunk is decoded on the worker pool (any thread, in parallel) into Java sections,
+ *     biomes and block entities, then stored here;</li>
+ *     <li>the session's {@link ChunkWorker} lights it (light also flows into the loaded neighbours);</li>
+ *     <li>once its 8 neighbours are loaded too, or will not come (outside the server's view), or after
+ *     a short wait, the worker builds the Java packet, so a chunk rarely needs a light update later;</li>
+ *     <li>built packets go to the client nearest first, in vanilla-like batches paced by the client's
+ *     {@code ChunkBatchReceived} answers.</li>
+ * </ol>
+ * Block changes update the stored sections (copy on write), the worker's light, and the client; a
+ * change the packet already built does not show is resent right after it.
+ */
+final class ChunkManager implements ChunkWorker.Output {
+
+    private static final long NEIGHBOUR_WAIT_NANOS = TimeUnit.MILLISECONDS.toNanos(400);
+    private static final long SUB_CHUNK_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(5);
+    /** Vanilla PlayerChunkSender pacing. */
+    private static final float START_CHUNKS_PER_TICK = 9f;
+    private static final int MAX_UNACKNOWLEDGED_BATCHES = 10;
+
+    private final ProxySession session;
+    private final WorldState world;
+    private final BlockMapper mapper;
+    private final boolean fullBright;
+    private final Long2ObjectOpenHashMap<ChunkColumn> columns = new Long2ObjectOpenHashMap<>();
+    private final ObjectArrayList<ChunkColumn> waiting = new ObjectArrayList<>();
+    private final ObjectArrayList<ChunkColumn> queued = new ObjectArrayList<>();
+    private final ChunkStats stats = new ChunkStats();
+    private final ChunkWorker worker;
+    private ChunkLayout layout;
+    private BiomeTable biomes;
+    private long nextToken = 1;
+    private boolean closed;
+
+    private boolean viewKnown;
+    private int viewX;
+    private int viewZ;
+    private int viewRadius = 8;
+    private int cacheCenterX = Integer.MIN_VALUE;
+    private int cacheCenterZ = Integer.MIN_VALUE;
+    private int playerChunkX = Integer.MIN_VALUE;
+    private int playerChunkZ = Integer.MIN_VALUE;
+
+    private float desiredChunksPerTick = START_CHUNKS_PER_TICK;
+    private float batchQuota;
+    private int unacknowledgedBatches;
+    private int maxUnacknowledgedBatches = 1;
+
+    ChunkManager(ProxySession session, WorldState world, ChunkLayout layout, BiomeTable biomes) {
+        this.session = session;
+        this.world = world;
+        this.mapper = session.get(BlockMapper.KEY);
+        this.fullBright = session.config().world().lighting() == ProxyConfig.Lighting.FULL_BRIGHT;
+        this.layout = layout;
+        this.biomes = biomes;
+        this.worker = new ChunkWorker(session, session.proxy().workers(), this, this.fullBright, this.mapper.lightTable(), this.stats);
+        this.worker.reset(layout, biomes.registrySize());
+    }
+
+    /** A new world (dimension change): every chunk is dropped; the client drops its own on respawn. */
+    void reset(ChunkLayout newLayout, BiomeTable newBiomes) {
+        this.columns.clear();
+        this.waiting.clear();
+        this.queued.clear();
+        this.layout = newLayout;
+        this.biomes = newBiomes;
+        this.viewKnown = false;
+        this.cacheCenterX = Integer.MIN_VALUE;
+        this.playerChunkX = Integer.MIN_VALUE;
+        this.worker.reset(newLayout, newBiomes.registrySize());
+    }
+
+    /** Custom biomes changed the table (before the first chunk normally). */
+    void setBiomes(BiomeTable newBiomes) {
+        this.biomes = newBiomes;
+        this.worker.reset(this.layout, newBiomes.registrySize());
+    }
+
+    ChunkLayout layout() {
+        return this.layout;
+    }
+
+    ChunkStats stats() {
+        return this.stats;
+    }
+
+    // ------------------------------------------------------------------ queries
+
+    @Nullable ChunkColumn column(int chunkX, int chunkZ) {
+        return this.columns.get(ChunkColumn.key(chunkX, chunkZ));
+    }
+
+    boolean isLoaded(int chunkX, int chunkZ) {
+        ChunkColumn column = column(chunkX, chunkZ);
+        return column != null && column.isDecoded();
+    }
+
+    private @Nullable ChunkSection section(int x, int y, int z) {
+        ChunkColumn column = column(x >> 4, z >> 4);
+        if (column == null || column.sections == null) {
+            return null;
+        }
+        int index = this.layout.sectionIndex(y);
+        return index < 0 ? null : column.sections[index];
+    }
+
+    int javaBlockAt(int x, int y, int z) {
+        ChunkSection section = section(x, y, z);
+        return section == null ? JavaBlockStates.AIR : section.javaAt(BlockStorage.index(x & 15, y & 15, z & 15));
+    }
+
+    int bedrockBlockAt(int x, int y, int z, int layer) {
+        ChunkSection section = section(x, y, z);
+        int air = this.mapper.bedrockAir();
+        return section == null ? air : section.bedrockAt(BlockStorage.index(x & 15, y & 15, z & 15), layer, air);
+    }
+
+    @Nullable NbtMap bedrockBlockEntityAt(int x, int y, int z) {
+        ChunkColumn column = column(x >> 4, z >> 4);
+        return column == null ? null : column.bedrockBlockEntities.get(BlockEntityTranslator.packLocal(x, y, z, this.layout.javaMinY()));
+    }
+
+    // ------------------------------------------------------------------ level chunks
+
+    void onLevelChunk(LevelChunkPacket packet) {
+        int x = packet.getChunkX();
+        int z = packet.getChunkZ();
+        discard(this.columns.remove(ChunkColumn.key(x, z)));
+        ChunkColumn column = new ChunkColumn(x, z, this.nextToken++);
+        this.columns.put(ChunkColumn.key(x, z), column);
+        if (packet.isCacheEnabled()) {
+            this.session.logger().warn("[{}] Bedrock server sent a cached chunk although the blob cache is off", this.session.getName());
+        }
+        boolean request = packet.isClientNeedsToRequestSubChunks();
+        if (request) {
+            Integer limit = packet.getClientRequestSubChunkLimit();
+            int count = limit == null || limit < 0 ? this.layout.bedrockSections() : Math.min(limit + 1, this.layout.bedrockSections());
+            for (int i = 0; i < count; i++) {
+                column.requestedSections.add(this.layout.bedrockMinSection() + i);
+            }
+        }
+        int subChunks = request ? 0 : packet.getSubChunksCount();
+        ByteBuf data = packet.getSerializedChunkData().retainedSlice();
+        ChunkLayout chunkLayout = this.layout;
+        BiomeTable biomeTable = this.biomes;
+        BlockMapper blockMapper = this.mapper;
+        this.session.proxy().workers().execute(() -> {
+            long start = System.nanoTime();
+            Decoded decoded;
+            try {
+                BedrockChunkDecoder.LevelChunkData chunk = BedrockChunkDecoder.decodeLevelChunk(data, subChunks, chunkLayout, blockMapper, biomeTable);
+                decoded = finishDecode(x, z, chunk.sections(), chunk.biomes(), chunk.blockEntities(), chunkLayout, blockMapper);
+            } catch (RuntimeException e) {
+                this.session.logger().warn("[{}] Cannot decode chunk {},{}: {}", this.session.getName(), x, z, e.toString());
+                decoded = finishDecode(x, z, new ChunkSection[chunkLayout.javaSections()], fill(chunkLayout), List.of(), chunkLayout, blockMapper);
+            } finally {
+                data.release();
+            }
+            Decoded result = decoded;
+            long nanos = System.nanoTime() - start;
+            this.session.execute(() -> onDecoded(column, result, nanos));
+        });
+    }
+
+    private static int[][] fill(ChunkLayout layout) {
+        int[][] biomes = new int[layout.javaSections()][];
+        for (int i = 0; i < biomes.length; i++) {
+            biomes[i] = new int[]{layout.defaultBiome()};
+        }
+        return biomes;
+    }
+
+    /** Decoded column data, ready to be stored. */
+    private record Decoded(@Nullable ChunkSection[] sections, int[][] biomes, Int2ObjectOpenHashMap<NbtMap> blockEntities,
+                           IntOpenHashSet javaBlockEntities) {
+    }
+
+    /** Worker side: indexes the block entities, applies the states they imply and finds the Java block entity positions. */
+    private static Decoded finishDecode(int chunkX, int chunkZ, @Nullable ChunkSection[] sections, int[][] biomes,
+                                        List<NbtMap> blockEntities, ChunkLayout layout, BlockMapper mapper) {
+        int minY = layout.javaMinY();
+        Int2ObjectOpenHashMap<NbtMap> bedrock = new Int2ObjectOpenHashMap<>(blockEntities.size());
+        for (NbtMap nbt : blockEntities) {
+            int x = nbt.getInt("x");
+            int y = nbt.getInt("y");
+            int z = nbt.getInt("z");
+            int index = layout.sectionIndex(y);
+            if (x >> 4 != chunkX || z >> 4 != chunkZ || index < 0) {
+                continue;
+            }
+            bedrock.put(BlockEntityTranslator.packLocal(x, y, z, minY), nbt);
+            ChunkSection section = sections[index];
+            if (section != null) {
+                int i = BlockStorage.index(x & 15, y & 15, z & 15);
+                int base = mapper.toJava(section.layer0().get(i), section.layer1() == null ? mapper.bedrockAir() : section.layer1().get(i));
+                int fixed = BlockEntityTranslator.javaState(base, nbt, x, z, mapper);
+                if (fixed != section.javaAt(i)) {
+                    sections[index] = section.withJava(i, fixed);
+                }
+            }
+        }
+        IntOpenHashSet java = new IntOpenHashSet();
+        for (int s = 0; s < sections.length; s++) {
+            ChunkSection section = sections[s];
+            if (section == null || !section.java().paletteContains(JavaBlockStates::hasBlockEntity)) {
+                continue;
+            }
+            for (int i = 0; i < BlockStorage.SIZE; i++) {
+                if (JavaBlockStates.hasBlockEntity(section.javaAt(i))) {
+                    java.add((i & 0xFF) | (((s << 4) | (i >> 8)) << 8));
+                }
+            }
+        }
+        return new Decoded(sections, biomes, bedrock, java);
+    }
+
+    private void onDecoded(ChunkColumn column, Decoded decoded, long nanos) {
+        if (this.closed || this.columns.get(ChunkColumn.key(column.x, column.z)) != column) {
+            return;
+        }
+        this.stats.decoded(nanos);
+        column.sections = decoded.sections();
+        column.biomes = decoded.biomes();
+        column.bedrockBlockEntities.putAll(decoded.blockEntities());
+        column.javaBlockEntities.addAll(decoded.javaBlockEntities());
+        if (!column.requestedSections.isEmpty()) {
+            column.stage = ChunkColumn.Stage.REQUESTING;
+            column.requestedAt = System.nanoTime();
+            requestSubChunks(column);
+            return;
+        }
+        loaded(column);
+    }
+
+    /** The column has all its blocks: apply what arrived meanwhile, light it, wait for neighbours. */
+    private void loaded(ChunkColumn column) {
+        for (int[] change : column.pendingBlocks) {
+            setBlock(column, change[0], change[1], change[2], change[3], change[4], null);
+        }
+        column.pendingBlocks.clear();
+        column.stage = ChunkColumn.Stage.WAITING;
+        column.readyAt = System.nanoTime() + NEIGHBOUR_WAIT_NANOS;
+        this.worker.load(column.x, column.z, column.sections);
+        for (NbtMap nbt : column.pendingBlockEntities) {
+            onBlockEntity(Vector3i.from(nbt.getInt("x"), nbt.getInt("y"), nbt.getInt("z")), nbt);
+        }
+        column.pendingBlockEntities.clear();
+        this.waiting.add(column);
+        long now = System.nanoTime();
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                ChunkColumn neighbour = column(column.x + dx, column.z + dz);
+                if (neighbour != null && neighbour.stage == ChunkColumn.Stage.WAITING && isReady(neighbour, now)) {
+                    build(neighbour);
+                }
+            }
+        }
+    }
+
+    private boolean isReady(ChunkColumn column, long now) {
+        if (this.fullBright || now >= column.readyAt) {
+            return true;
+        }
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                if (dx == 0 && dz == 0) {
+                    continue;
+                }
+                ChunkColumn neighbour = column(column.x + dx, column.z + dz);
+                if (neighbour != null ? !neighbour.isDecoded() : isExpected(column.x + dx, column.z + dz)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /** Whether the server will send this chunk (inside its view circle). */
+    private boolean isExpected(int x, int z) {
+        if (!this.viewKnown) {
+            return true;
+        }
+        int dx = x - this.viewX;
+        int dz = z - this.viewZ;
+        return dx * dx + dz * dz <= this.viewRadius * this.viewRadius;
+    }
+
+    private void build(ChunkColumn column) {
+        this.waiting.remove(column);
+        column.stage = ChunkColumn.Stage.BUILDING;
+        this.worker.build(column.token, column.x, column.z, column.biomes, blockEntityInfos(column));
+    }
+
+    private BlockEntityInfo[] blockEntityInfos(ChunkColumn column) {
+        BlockEntityInfo[] infos = new BlockEntityInfo[column.javaBlockEntities.size()];
+        int n = 0;
+        int minY = this.layout.javaMinY();
+        for (int packed : column.javaBlockEntities) {
+            int lx = packed & 15;
+            int lz = (packed >> 4) & 15;
+            int y = (packed >> 8) + minY;
+            int state = javaBlockAt((column.x << 4) | lx, y, (column.z << 4) | lz);
+            BlockEntityType type = JavaBlockStates.blockEntityType(state);
+            if (type != null) {
+                infos[n++] = new BlockEntityInfo(lx, y, lz, type,
+                        BlockEntityTranslator.toJava(type, state, column.bedrockBlockEntities.get(packed)));
+            }
+        }
+        return n == infos.length ? infos : Arrays.copyOf(infos, n);
+    }
+
+    @Override
+    public void chunkBuilt(long token, ClientboundLevelChunkWithLightPacket packet, long nanos) {
+        ChunkColumn column = column(packet.getX(), packet.getZ());
+        if (this.closed || column == null || column.token != token || column.stage != ChunkColumn.Stage.BUILDING) {
+            return;
+        }
+        this.stats.built(nanos);
+        column.packet = packet;
+        column.stage = ChunkColumn.Stage.QUEUED;
+        this.queued.add(column);
+    }
+
+    @Override
+    public void lightUpdated(int x, int z, ClientboundLightUpdatePacket packet) {
+        ChunkColumn column = column(x, z);
+        if (this.closed || column == null) {
+            return;
+        }
+        if (column.stage == ChunkColumn.Stage.SENT) {
+            this.session.sendJava(packet);
+        } else if (column.stage == ChunkColumn.Stage.QUEUED) {
+            column.after.add(packet);
+        }
+    }
+
+    // ------------------------------------------------------------------ sub-chunk request mode
+
+    private void requestSubChunks(ChunkColumn column) {
+        SubChunkRequestPacket request = new SubChunkRequestPacket();
+        request.setDimensionType(DimensionType.from(this.world.dimension()));
+        request.setCenterPos(Vector3i.from(column.x, 0, column.z));
+        for (int sectionY : column.requestedSections) {
+            request.getSubChunkPosOffsetList().add(Vector3i.from(0, sectionY, 0));
+        }
+        this.session.sendBedrock(request);
+    }
+
+    void onSubChunk(SubChunkPacket packet) {
+        if (packet.getDimensionType() != null && packet.getDimensionType().getValue() != this.world.dimension()) {
+            return;
+        }
+        Vector3i center = packet.getCenterPos();
+        List<SubChunkPacketData> entries = packet.getSubChunkData();
+        List<int[]> positions = new ArrayList<>(entries.size());
+        List<ByteBuf> payloads = new ArrayList<>(entries.size());
+        for (SubChunkPacketData entry : entries) {
+            Vector3i offset = entry.getSubChunkPosOffset();
+            int[] position = {center.getX() + offset.getX(), center.getY() + offset.getY(), center.getZ() + offset.getZ()};
+            ChunkColumn column = column(position[0], position[2]);
+            if (column == null || column.stage != ChunkColumn.Stage.REQUESTING || !column.requestedSections.contains(position[1])) {
+                continue;
+            }
+            positions.add(position);
+            SubChunkRequestResult result = entry.getSubChunkRequestResult();
+            ByteBuf data = entry.getSerializedSubChunk();
+            payloads.add(result == SubChunkRequestResult.SUCCESS && data != null ? data.retainedSlice() : null);
+        }
+        if (positions.isEmpty()) {
+            return;
+        }
+        BlockMapper blockMapper = this.mapper;
+        this.session.proxy().workers().execute(() -> {
+            List<BedrockChunkDecoder.SubChunkData> decoded = new ArrayList<>(positions.size());
+            for (int i = 0; i < positions.size(); i++) {
+                ByteBuf data = payloads.get(i);
+                if (data == null) {
+                    decoded.add(null);
+                    continue;
+                }
+                try {
+                    decoded.add(BedrockChunkDecoder.decodeSubChunk(data, positions.get(i)[1], blockMapper));
+                } catch (RuntimeException e) {
+                    decoded.add(null);
+                } finally {
+                    data.release();
+                }
+            }
+            this.session.execute(() -> onSubChunksDecoded(positions, decoded));
+        });
+    }
+
+    private void onSubChunksDecoded(List<int[]> positions, List<BedrockChunkDecoder.SubChunkData> decoded) {
+        if (this.closed) {
+            return;
+        }
+        for (int i = 0; i < positions.size(); i++) {
+            int[] position = positions.get(i);
+            ChunkColumn column = column(position[0], position[2]);
+            if (column == null || column.stage != ChunkColumn.Stage.REQUESTING || !column.requestedSections.remove(position[1])) {
+                continue;
+            }
+            BedrockChunkDecoder.SubChunkData data = decoded.get(i);
+            int index = this.layout.javaIndexOfBedrockSection(position[1]);
+            if (data != null && index >= 0) {
+                ChunkSection[] sections = column.sections;
+                sections[index] = data.section().isEmpty() ? null : data.section();
+                Decoded extra = finishDecode(column.x, column.z, sections, column.biomes, data.blockEntities(), this.layout, this.mapper);
+                column.bedrockBlockEntities.putAll(extra.blockEntities());
+                column.javaBlockEntities.addAll(extra.javaBlockEntities());
+            }
+            if (column.requestedSections.isEmpty()) {
+                loaded(column);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ view
+
+    void onPublisherUpdate(int blockX, int blockZ, int radiusBlocks) {
+        this.viewKnown = true;
+        this.viewX = blockX >> 4;
+        this.viewZ = blockZ >> 4;
+        this.viewRadius = Math.max(1, radiusBlocks >> 4);
+        setCacheCenter(this.viewX, this.viewZ);
+        unloadOutside();
+    }
+
+    void onRadiusUpdated(int radius) {
+        this.viewRadius = radius;
+        this.session.sendJava(new ClientboundSetChunkCacheRadiusPacket(radius));
+        if (this.viewKnown) {
+            unloadOutside();
+        }
+    }
+
+    private void setCacheCenter(int x, int z) {
+        if (x != this.cacheCenterX || z != this.cacheCenterZ) {
+            this.cacheCenterX = x;
+            this.cacheCenterZ = z;
+            this.session.sendJava(new ClientboundSetChunkCacheCenterPacket(x, z));
+        }
+    }
+
+    /** Drops chunks the Bedrock client would forget: beyond the view circle (with a little margin). */
+    private void unloadOutside() {
+        int limit = (this.viewRadius + 2) * (this.viewRadius + 2);
+        List<ChunkColumn> remove = null;
+        for (ChunkColumn column : this.columns.values()) {
+            int dx = column.x - this.viewX;
+            int dz = column.z - this.viewZ;
+            if (dx * dx + dz * dz > limit) {
+                if (remove == null) {
+                    remove = new ArrayList<>();
+                }
+                remove.add(column);
+            }
+        }
+        if (remove != null) {
+            for (ChunkColumn column : remove) {
+                this.columns.remove(ChunkColumn.key(column.x, column.z));
+                discard(column);
+            }
+        }
+    }
+
+    private void discard(@Nullable ChunkColumn column) {
+        if (column == null) {
+            return;
+        }
+        if (column.stage == ChunkColumn.Stage.SENT) {
+            this.session.sendJava(new ClientboundForgetLevelChunkPacket(column.x, column.z));
+        }
+        if (column.isDecoded()) {
+            this.worker.unload(column.x, column.z);
+        }
+        this.waiting.remove(column);
+        this.queued.remove(column);
+        column.packet = null;
+    }
+
+    // ------------------------------------------------------------------ blocks
+
+    /**
+     * Applies one Bedrock block change.
+     *
+     * @param javaChanges when not null, Java changes are collected there (packed section + entry) instead of being sent
+     * @return true when the Java state changed
+     */
+    boolean setBlock(int x, int y, int z, int layer, int runtimeId, @Nullable ChangeSet javaChanges) {
+        ChunkColumn column = column(x >> 4, z >> 4);
+        if (column == null || layer < 0 || layer > 1) {
+            return false;
+        }
+        if (column.stage == ChunkColumn.Stage.DECODING || column.stage == ChunkColumn.Stage.REQUESTING) {
+            column.pendingBlocks.add(new int[]{x, y, z, layer, runtimeId});
+            return false;
+        }
+        return setBlock(column, x, y, z, layer, runtimeId, javaChanges);
+    }
+
+    private boolean setBlock(ChunkColumn column, int x, int y, int z, int layer, int runtimeId,
+                             @Nullable ChangeSet javaChanges) {
+        int index = this.layout.sectionIndex(y);
+        if (index < 0) {
+            return false;
+        }
+        ChunkSection section = column.sections[index];
+        if (section == null) {
+            section = ChunkSection.air(this.mapper.bedrockAir());
+        }
+        int i = BlockStorage.index(x & 15, y & 15, z & 15);
+        int oldJava = section.javaAt(i);
+        int oldBedrock = section.layer0().get(i);
+        ChunkSection updated = section.with(i, layer, runtimeId, this.mapper);
+        int packed = BlockEntityTranslator.packLocal(x, y, z, this.layout.javaMinY());
+        int newJava = updated.javaAt(i);
+        if (layer == 0 && oldBedrock != runtimeId) {
+            NbtMap nbt = column.bedrockBlockEntities.get(packed);
+            if (nbt != null && JavaBlockStates.blockEntityType(oldJava) != JavaBlockStates.blockEntityType(newJava)) {
+                column.bedrockBlockEntities.remove(packed);
+            } else if (nbt != null) {
+                int fixed = BlockEntityTranslator.javaState(newJava, nbt, x, z, this.mapper);
+                if (fixed != newJava) {
+                    updated = updated.withJava(i, fixed);
+                    newJava = fixed;
+                }
+            }
+        }
+        return storeSection(column, index, updated, x, y, z, oldJava, newJava, javaChanges);
+    }
+
+    private boolean storeSection(ChunkColumn column, int index, ChunkSection updated, int x, int y, int z, int oldJava, int newJava,
+                                 @Nullable ChangeSet javaChanges) {
+        column.sections[index] = updated.isEmpty() ? null : updated;
+        int packed = BlockEntityTranslator.packLocal(x, y, z, this.layout.javaMinY());
+        if (JavaBlockStates.hasBlockEntity(newJava)) {
+            column.javaBlockEntities.add(packed);
+        } else {
+            column.javaBlockEntities.remove(packed);
+        }
+        if (column.stage != ChunkColumn.Stage.DECODING && column.stage != ChunkColumn.Stage.REQUESTING) {
+            this.worker.blockChanged(column.x, column.z, index, updated, x & 15, y, z & 15, oldJava, newJava);
+        }
+        if (oldJava == newJava) {
+            return false;
+        }
+        if (column.stage == ChunkColumn.Stage.SENT) {
+            BlockChangeEntry entry = new BlockChangeEntry(Vector3i.from(x, y, z), newJava);
+            if (javaChanges == null) {
+                this.session.sendJava(new ClientboundBlockUpdatePacket(entry));
+            } else {
+                javaChanges.add(entry);
+            }
+        } else if (column.isBuilt()) {
+            column.dirty.add(packed);
+        }
+        return true;
+    }
+
+    /** Java block changes collected while applying a multi-block Bedrock packet, sent grouped by section. */
+    static final class ChangeSet {
+
+        private final Long2ObjectOpenHashMap<List<BlockChangeEntry>> sections = new Long2ObjectOpenHashMap<>();
+
+        void add(BlockChangeEntry entry) {
+            Vector3i p = entry.getPosition();
+            this.sections.computeIfAbsent(sectionKey(p.getX() >> 4, p.getY() >> 4, p.getZ() >> 4), k -> new ArrayList<>()).add(entry);
+        }
+    }
+
+    /** Sends collected changes: a block update for a lone change, else one section update per section. */
+    void flushChanges(ChangeSet changes) {
+        for (Long2ObjectMap.Entry<List<BlockChangeEntry>> section : changes.sections.long2ObjectEntrySet()) {
+            List<BlockChangeEntry> entries = section.getValue();
+            if (entries.size() == 1) {
+                this.session.sendJava(new ClientboundBlockUpdatePacket(entries.getFirst()));
+            } else {
+                long key = section.getLongKey();
+                this.session.sendJava(new ClientboundSectionBlocksUpdatePacket((int) (key >> 42), (int) (key << 44 >> 44),
+                        (int) (key << 22 >> 42), entries.toArray(new BlockChangeEntry[0])));
+            }
+        }
+    }
+
+    private static long sectionKey(int x, int y, int z) {
+        return ((long) (x & 0x3FFFFF) << 42) | ((long) (z & 0x3FFFFF) << 20) | (y & 0xFFFFF);
+    }
+
+    /** A Bedrock block entity arrived or changed ({@code BlockActorDataPacket}). */
+    void onBlockEntity(Vector3i position, NbtMap nbt) {
+        int x = position.getX();
+        int y = position.getY();
+        int z = position.getZ();
+        ChunkColumn column = column(x >> 4, z >> 4);
+        int index = this.layout.sectionIndex(y);
+        if (column == null || index < 0) {
+            return;
+        }
+        if (column.sections == null || column.stage == ChunkColumn.Stage.REQUESTING) {
+            column.pendingBlockEntities.add(nbt.toBuilder().putInt("x", x).putInt("y", y).putInt("z", z).build());
+            return;
+        }
+        int packed = BlockEntityTranslator.packLocal(x, y, z, this.layout.javaMinY());
+        column.bedrockBlockEntities.put(packed, nbt);
+        ChunkSection section = column.sections[index];
+        int i = BlockStorage.index(x & 15, y & 15, z & 15);
+        int current = section == null ? JavaBlockStates.AIR : section.javaAt(i);
+        if (section != null) {
+            int base = this.mapper.toJava(section.layer0().get(i), section.layer1() == null ? this.mapper.bedrockAir() : section.layer1().get(i));
+            int fixed = BlockEntityTranslator.javaState(base, nbt, x, z, this.mapper);
+            if (fixed != current) {
+                storeSection(column, index, section.withJava(i, fixed), x, y, z, current, fixed, null);
+                current = fixed;
+            }
+        }
+        BlockEntityType type = JavaBlockStates.blockEntityType(current);
+        if (type == null) {
+            return;
+        }
+        if (column.stage == ChunkColumn.Stage.SENT) {
+            this.session.sendJava(new ClientboundBlockEntityDataPacket(position, type, BlockEntityTranslator.toJava(type, current, nbt)));
+        } else if (column.isBuilt()) {
+            column.dirty.add(packed);
+        }
+    }
+
+    // ------------------------------------------------------------------ sending
+
+    void onBatchReceived(float desiredChunksPerTick) {
+        this.unacknowledgedBatches = Math.max(0, this.unacknowledgedBatches - 1);
+        this.desiredChunksPerTick = Float.isNaN(desiredChunksPerTick) ? 0.01f : Math.clamp(desiredChunksPerTick, 0.01f, 64f);
+        if (this.unacknowledgedBatches == 0) {
+            this.batchQuota = 1f;
+        }
+        this.maxUnacknowledgedBatches = MAX_UNACKNOWLEDGED_BATCHES;
+    }
+
+    void tick() {
+        long now = System.nanoTime();
+        if (!this.waiting.isEmpty()) {
+            for (ChunkColumn column : this.waiting.toArray(new ChunkColumn[0])) {
+                if (column.stage == ChunkColumn.Stage.WAITING && isReady(column, now)) {
+                    build(column);
+                }
+            }
+        }
+        List<ChunkColumn> late = null;
+        for (ChunkColumn column : this.columns.values()) {
+            if (column.stage == ChunkColumn.Stage.REQUESTING && now - column.requestedAt > SUB_CHUNK_TIMEOUT_NANOS) {
+                if (late == null) {
+                    late = new ArrayList<>();
+                }
+                late.add(column);
+            }
+        }
+        if (late != null) {
+            for (ChunkColumn column : late) {
+                column.requestedSections.clear();
+                loaded(column);
+            }
+        }
+        if (this.session.javaPhase() != ProxySession.JavaPhase.GAME) {
+            return;
+        }
+        followPlayer();
+        sendBatch();
+    }
+
+    /** Keeps the client's chunk cache centred on the player as it walks. */
+    private void followPlayer() {
+        PlayerState player = this.session.get(PlayerState.KEY);
+        int x = (int) Math.floor(player.position().getX()) >> 4;
+        int z = (int) Math.floor(player.position().getZ()) >> 4;
+        if (x != this.playerChunkX || z != this.playerChunkZ) {
+            this.playerChunkX = x;
+            this.playerChunkZ = z;
+            if (this.cacheCenterX != Integer.MIN_VALUE) {
+                setCacheCenter(x, z);
+            }
+        }
+    }
+
+    private void sendBatch() {
+        if (this.queued.isEmpty() || this.unacknowledgedBatches >= this.maxUnacknowledgedBatches) {
+            return;
+        }
+        float max = Math.max(1f, this.desiredChunksPerTick);
+        this.batchQuota = Math.min(this.batchQuota + this.desiredChunksPerTick, max);
+        if (this.batchQuota < 1f) {
+            return;
+        }
+        int count = Math.min((int) this.batchQuota, this.queued.size());
+        int px = this.playerChunkX == Integer.MIN_VALUE ? this.viewX : this.playerChunkX;
+        int pz = this.playerChunkZ == Integer.MIN_VALUE ? this.viewZ : this.playerChunkZ;
+        this.queued.sort((a, b) -> Integer.compare(distance(a, px, pz), distance(b, px, pz)));
+        this.session.sendJava(new ClientboundChunkBatchStartPacket());
+        for (int i = 0; i < count; i++) {
+            send(this.queued.get(i));
+        }
+        this.queued.removeElements(0, count);
+        this.session.sendJava(new ClientboundChunkBatchFinishedPacket(count));
+        this.unacknowledgedBatches++;
+        this.batchQuota -= count;
+        if (this.stats.shouldReport(this.queued.isEmpty() && this.waiting.isEmpty())) {
+            this.session.logger().info("[{}] {}", this.session.getName(), this.stats.report());
+        }
+    }
+
+    private static int distance(ChunkColumn column, int x, int z) {
+        int dx = column.x - x;
+        int dz = column.z - z;
+        return dx * dx + dz * dz;
+    }
+
+    private void send(ChunkColumn column) {
+        ClientboundLevelChunkWithLightPacket packet = column.packet;
+        column.packet = null;
+        column.stage = ChunkColumn.Stage.SENT;
+        if (packet == null) {
+            return;
+        }
+        this.session.sendJava(packet);
+        this.stats.sent();
+        for (Packet after : column.after) {
+            this.session.sendJava(after);
+        }
+        column.after.clear();
+        if (!column.dirty.isEmpty()) {
+            resendDirty(column);
+        }
+    }
+
+    private void resendDirty(ChunkColumn column) {
+        ChangeSet changes = new ChangeSet();
+        IntArrayList entities = new IntArrayList();
+        int minY = this.layout.javaMinY();
+        for (int packed : column.dirty) {
+            int x = (column.x << 4) | (packed & 15);
+            int z = (column.z << 4) | ((packed >> 4) & 15);
+            int y = (packed >> 8) + minY;
+            int state = javaBlockAt(x, y, z);
+            changes.add(new BlockChangeEntry(Vector3i.from(x, y, z), state));
+            if (JavaBlockStates.hasBlockEntity(state) && column.bedrockBlockEntities.containsKey(packed)) {
+                entities.add(packed);
+            }
+        }
+        column.dirty.clear();
+        flushChanges(changes);
+        for (int packed : entities) {
+            int x = (column.x << 4) | (packed & 15);
+            int z = (column.z << 4) | ((packed >> 4) & 15);
+            int y = (packed >> 8) + minY;
+            int state = javaBlockAt(x, y, z);
+            BlockEntityType type = JavaBlockStates.blockEntityType(state);
+            if (type != null) {
+                this.session.sendJava(new ClientboundBlockEntityDataPacket(Vector3i.from(x, y, z), type,
+                        BlockEntityTranslator.toJava(type, state, column.bedrockBlockEntities.get(packed))));
+            }
+        }
+    }
+
+    void close() {
+        this.closed = true;
+        this.worker.close();
+        this.columns.clear();
+        this.waiting.clear();
+        this.queued.clear();
+    }
+}

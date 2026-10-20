@@ -18,7 +18,9 @@ import org.geysermc.mcprotocollib.protocol.packet.configuration.serverbound.Serv
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.ClientboundLoginPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.ClientboundSystemChatPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.player.ClientboundPlayerPositionPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundChunkBatchFinishedPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.level.ServerboundAcceptTeleportationPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.level.ServerboundChunkBatchReceivedPacket;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -45,6 +47,9 @@ import java.util.concurrent.atomic.AtomicReference;
  * {@code -Dhost -Dport -Dname -Dseconds -Dscenario=default}
  */
 public final class HeadlessJavaClient {
+
+    /** What a vanilla client on a fast machine asks for (its measured chunk processing rate). */
+    private static final float DESIRED_CHUNKS_PER_TICK = 25f;
 
     private final AtomicReference<String> disconnectReason = new AtomicReference<>();
     private final CountDownLatch joined = new CountDownLatch(1);
@@ -150,6 +155,9 @@ public final class HeadlessJavaClient {
             log("Teleport to " + teleport.getPosition() + " (id " + teleport.getId() + ")");
             this.context.positioned = true;
             this.joined.countDown();
+        } else if (packet instanceof ClientboundChunkBatchFinishedPacket) {
+            // A vanilla client acknowledges every chunk batch with the rate it can take.
+            session.send(new ServerboundChunkBatchReceivedPacket(DESIRED_CHUNKS_PER_TICK));
         } else if (packet instanceof ClientboundSystemChatPacket chatPacket) {
             String text = PlainTextComponentSerializer.plainText().serialize(chatPacket.getContent());
             this.context.chat.add((chatPacket.isOverlay() ? "[actionbar] " : "") + text);
