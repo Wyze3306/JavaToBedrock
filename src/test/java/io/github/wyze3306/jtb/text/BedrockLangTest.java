@@ -30,4 +30,24 @@ class BedrockLangTest {
         assertEquals("100%", BedrockLang.format("%d%%", "100"));
         assertEquals("missing: ", BedrockLang.format("missing: %s"));
     }
+
+    @Test
+    void javaLocalesMapToTheClosestBedrockLanguage() {
+        assertEquals("fr_FR", BedrockLang.codeForJavaLocale("fr_fr", "en_US"));
+        assertEquals("fr_CA", BedrockLang.codeForJavaLocale("fr_ca", "en_US"));
+        assertEquals("fr_FR", BedrockLang.codeForJavaLocale("fr_be", "en_US"));
+        assertEquals("de_DE", BedrockLang.codeForJavaLocale("de_at", "en_US"));
+        assertEquals("nb_NO", BedrockLang.codeForJavaLocale("no_no", "en_US"));
+        assertEquals("nb_NO", BedrockLang.codeForJavaLocale("nn_no", "en_US"));
+        assertEquals("en_GB", BedrockLang.codeForJavaLocale("en_au", "fr_FR"));
+        assertEquals("en_US", BedrockLang.codeForJavaLocale("en_ca", "fr_FR"));
+        assertEquals("es_ES", BedrockLang.codeForJavaLocale("es_es", "en_US"));
+        assertEquals("es_MX", BedrockLang.codeForJavaLocale("es_ar", "en_US"));
+        assertEquals("zh_TW", BedrockLang.codeForJavaLocale("zh_hk", "en_US"));
+        assertEquals("zh_CN", BedrockLang.codeForJavaLocale("zh_cn", "en_US"));
+        assertEquals("pt_PT", BedrockLang.codeForJavaLocale("pt_pt", "en_US"));
+        assertEquals("fr_FR", BedrockLang.codeForJavaLocale("tlh_aa", "fr_FR"));
+        assertEquals("fr_FR", BedrockLang.codeForJavaLocale("xx_yy", "fr_FR"));
+        assertEquals("fr_FR", BedrockLang.codeForJavaLocale(null, "fr_FR"));
+    }
 }

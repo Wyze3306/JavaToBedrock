@@ -71,5 +71,36 @@ final class GlyphConverter {
             font.add("providers", providers);
             context.writer().putJson("assets/minecraft/font/default.json", font);
         }
+        overlayFont(context);
+    }
+
+    /**
+     * Font {@code jtb:overlay}: U+E000 is a white band large enough to cover the screen when shown as
+     * a title (titles are drawn 4x: 1024 x 256 GUI pixels), tinted by the ui subsystem for Bedrock
+     * camera fades ({@link io.github.wyze3306.jtb.resourcepack.ConversionArtifacts#fadeOverlay()}).
+     */
+    private static void overlayFont(ConversionContext context) {
+        BufferedImage band = new BufferedImage(64, 16, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < band.getHeight(); y++) {
+            for (int x = 0; x < band.getWidth(); x++) {
+                band.setRGB(x, y, 0xFFFFFFFF);
+            }
+        }
+        String texture = "font/overlay.png";
+        context.writer().put("assets/" + JavaAssetNames.NAMESPACE + "/textures/" + texture, PackImages.encodePng(band));
+        JsonObject provider = new JsonObject();
+        provider.addProperty("type", "bitmap");
+        provider.addProperty("file", JavaAssetNames.NAMESPACE + ":" + texture);
+        provider.addProperty("height", 256);
+        provider.addProperty("ascent", 128);
+        JsonArray chars = new JsonArray();
+        chars.add("\uE000");
+        provider.add("chars", chars);
+        JsonArray providers = new JsonArray();
+        providers.add(provider);
+        JsonObject font = new JsonObject();
+        font.add("providers", providers);
+        context.writer().putJson("assets/" + JavaAssetNames.NAMESPACE + "/font/overlay.json", font);
+        context.artifacts().setFadeOverlay(true);
     }
 }

@@ -4,12 +4,12 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.skin.BedrockSkinData;
+import io.github.wyze3306.jtb.text.BedrockLang;
 import org.jose4j.lang.JoseException;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.Base64;
-import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -95,12 +95,10 @@ public final class ClientDataBuilder {
     }
 
     /**
-     * Java locale ({@code fr_fr}) to Bedrock language code ({@code fr_FR}).
+     * Java locale ({@code fr_fr}) to the closest Bedrock language code ({@code fr_FR}); see
+     * {@link BedrockLang#codeForJavaLocale}.
      */
     public static String bedrockLanguage(String javaLocale, String fallback) {
-        if (javaLocale == null || javaLocale.length() < 5 || javaLocale.charAt(2) != '_') {
-            return fallback;
-        }
-        return javaLocale.substring(0, 2).toLowerCase(Locale.ROOT) + "_" + javaLocale.substring(3).toUpperCase(Locale.ROOT);
+        return BedrockLang.codeForJavaLocale(javaLocale, fallback);
     }
 }

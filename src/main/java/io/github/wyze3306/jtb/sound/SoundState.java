@@ -209,20 +209,23 @@ public final class SoundState implements SessionState {
     }
 
     /**
-     * The Java sound of any Bedrock sound name: the vanilla mapping, else the converted pack's
-     * {@code jtb:<name>} event (see {@link CustomSounds}).
+     * The Java sound of any Bedrock sound name: the converted pack's {@code jtb:<name>} event when a
+     * server pack defines that sound (vanilla names re-defined included), else the vanilla mapping,
+     * else {@code jtb:<name>} (see {@link CustomSounds}).
      */
     public JavaSound javaSound(String bedrockName) {
+        // A server pack may re-define a vanilla sound with its own files: its event wins.
+        JavaSound pack = this.packSounds.isEmpty() ? null : this.packSounds.get(bedrockName.toLowerCase(Locale.ROOT));
+        if (pack != null) {
+            return pack;
+        }
         JavaSound vanilla = SoundMappings.vanillaSound(bedrockName);
         if (vanilla != null) {
             return vanilla;
         }
         JavaSound custom = this.customSounds.get(bedrockName);
         if (custom == null) {
-            custom = this.packSounds.get(bedrockName.toLowerCase(Locale.ROOT));
-            if (custom == null) {
-                custom = JavaSound.custom(bedrockName, SoundCategory.MASTER);
-            }
+            custom = JavaSound.custom(bedrockName, SoundCategory.MASTER);
             if (this.customSounds.size() < 4096) {
                 this.customSounds.put(bedrockName, custom);
             }

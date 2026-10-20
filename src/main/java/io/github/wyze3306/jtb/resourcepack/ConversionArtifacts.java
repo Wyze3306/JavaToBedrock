@@ -54,9 +54,20 @@ public final class ConversionArtifacts {
     public record Variant(String itemModel, float scale, float translationY) {
     }
 
+    /**
+     * How a pack sound is heard, from its {@code sound_definitions.json} entry.
+     *
+     * @param category    Bedrock category (ambient, block, hostile...), null when absent
+     * @param maxDistance {@code max_distance}, 0 when absent
+     * @param minDistance {@code min_distance}, 0 when absent
+     */
+    public record SoundProperties(@Nullable String category, float maxDistance, float minDistance) {
+    }
+
     private final Map<String, String> itemModels = new TreeMap<>();
     private final Map<String, String> equipmentAssets = new TreeMap<>();
     private final Map<String, String> soundEvents = new TreeMap<>();
+    private final Map<String, SoundProperties> soundProperties = new TreeMap<>();
     private final Map<String, Map<String, String>> languages = new TreeMap<>();
     private final NavigableSet<Integer> glyphPages = new TreeSet<>();
     private final Map<String, EntityModel> entityModels = new TreeMap<>();
@@ -78,6 +89,7 @@ public final class ConversionArtifacts {
         copy.itemModels.putAll(this.itemModels);
         copy.equipmentAssets.putAll(this.equipmentAssets);
         copy.soundEvents.putAll(this.soundEvents);
+        copy.soundProperties.putAll(this.soundProperties);
         this.languages.forEach((code, entries) -> copy.languages.put(code, new TreeMap<>(entries)));
         copy.glyphPages.addAll(this.glyphPages);
         copy.entityModels.putAll(this.entityModels);
@@ -118,6 +130,11 @@ public final class ConversionArtifacts {
 
     public @Nullable String soundEvent(String bedrockName) {
         return this.soundEvents.get(bedrockName);
+    }
+
+    /** Category and hearing distances of a pack sound ({@link #soundEvents()} key). */
+    public @Nullable SoundProperties soundProperties(String bedrockName) {
+        return this.soundProperties.get(bedrockName);
     }
 
     /** Translations from the packs' {@code texts/*.lang}, by Bedrock language code ({@code en_US}). */
@@ -161,8 +178,9 @@ public final class ConversionArtifacts {
         this.equipmentAssets.put(bedrockIdentifier, asset);
     }
 
-    public void putSoundEvent(String bedrockName, String javaEvent) {
+    public void putSoundEvent(String bedrockName, String javaEvent, SoundProperties properties) {
         this.soundEvents.put(bedrockName, javaEvent);
+        this.soundProperties.put(bedrockName, properties);
     }
 
     public void putLanguage(String bedrockCode, Map<String, String> entries) {
@@ -188,6 +206,17 @@ public final class ConversionArtifacts {
         json.add("item_models", stringMap(this.itemModels));
         json.add("equipment_assets", stringMap(this.equipmentAssets));
         json.add("sound_events", stringMap(this.soundEvents));
+        JsonObject properties = new JsonObject();
+        this.soundProperties.forEach((name, sound) -> {
+            JsonObject p = new JsonObject();
+            if (sound.category() != null) {
+                p.addProperty("category", sound.category());
+            }
+            p.addProperty("max_distance", sound.maxDistance());
+            p.addProperty("min_distance", sound.minDistance());
+            properties.add(name, p);
+        });
+        json.add("sound_properties", properties);
         JsonObject languages = new JsonObject();
         this.languages.forEach((code, entries) -> languages.add(code, stringMap(entries)));
         json.add("languages", languages);
@@ -223,6 +252,16 @@ public final class ConversionArtifacts {
         readStringMap(json.get("item_models"), artifacts.itemModels);
         readStringMap(json.get("equipment_assets"), artifacts.equipmentAssets);
         readStringMap(json.get("sound_events"), artifacts.soundEvents);
+        if (json.get("sound_properties") instanceof JsonObject properties) {
+            for (Map.Entry<String, JsonElement> sound : properties.entrySet()) {
+                if (sound.getValue() instanceof JsonObject p) {
+                    artifacts.soundProperties.put(sound.getKey(), new SoundProperties(
+                            p.has("category") ? p.get("category").getAsString() : null,
+                            p.has("max_distance") ? p.get("max_distance").getAsFloat() : 0,
+                            p.has("min_distance") ? p.get("min_distance").getAsFloat() : 0));
+                }
+            }
+        }
         if (json.get("languages") instanceof JsonObject languages) {
             for (Map.Entry<String, JsonElement> language : languages.entrySet()) {
                 Map<String, String> entries = new TreeMap<>();

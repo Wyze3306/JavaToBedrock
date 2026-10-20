@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import io.github.wyze3306.jtb.resourcepack.ConversionArtifacts;
 import io.github.wyze3306.jtb.resourcepack.JavaAssetNames;
 import org.jspecify.annotations.Nullable;
 
@@ -39,7 +40,11 @@ final class SoundConverter {
             if (javaEvent != null) {
                 String key = JavaAssetNames.soundEventPath(event.getKey());
                 sounds.add(key, javaEvent);
-                context.artifacts().putSoundEvent(event.getKey(), JavaAssetNames.NAMESPACE + ":" + key);
+                JsonObject definition = event.getValue();
+                String category = string(definition, "category");
+                context.artifacts().putSoundEvent(event.getKey(), JavaAssetNames.NAMESPACE + ":" + key,
+                        new ConversionArtifacts.SoundProperties(category.isEmpty() ? null : category,
+                                Math.max(0, number(definition, "max_distance", 0)), Math.max(0, number(definition, "min_distance", 0))));
                 context.count("sound events");
             }
         }

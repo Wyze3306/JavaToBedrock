@@ -5,6 +5,7 @@ import io.github.wyze3306.jtb.network.java.JavaConfiguration;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
 import io.github.wyze3306.jtb.session.StateKey;
+import io.github.wyze3306.jtb.sound.SoundState;
 import io.github.wyze3306.jtb.text.BedrockLang;
 import io.github.wyze3306.jtb.text.BedrockText;
 import io.netty.util.concurrent.ScheduledFuture;
@@ -122,6 +123,7 @@ public final class ResourcePackState implements SessionState {
         switch (status) {
             case SUCCESSFULLY_LOADED -> {
                 this.loaded = true;
+                registerSounds();
                 this.session.logger().info("[{}] The Java client loaded the converted resource pack", this.session.getName());
             }
             case DECLINED, FAILED_DOWNLOAD, INVALID_URL, FAILED_RELOAD, DISCARDED -> this.loaded = false;
@@ -199,6 +201,20 @@ public final class ResourcePackState implements SessionState {
                 conversion.pack().sha1(), conversion.pack().zip().length / 1024);
         this.session.get(JavaConfiguration.KEY).pushResourcePack(id, url, conversion.pack().sha1(),
                 config.required(), BedrockText.legacyToComponent(config.prompt()));
+    }
+
+    /** The pack's sounds can play now: tell the sound subsystem their categories and distances. */
+    private void registerSounds() {
+        if (this.conversion == null) {
+            return;
+        }
+        ConversionArtifacts artifacts = this.conversion.artifacts();
+        SoundState sounds = this.session.get(SoundState.KEY);
+        for (String name : artifacts.soundEvents().keySet()) {
+            ConversionArtifacts.SoundProperties properties = artifacts.soundProperties(name);
+            sounds.registerPackSound(name, properties == null ? null : properties.category(),
+                    properties == null ? 0 : properties.maxDistance(), properties == null ? 0 : properties.minDistance());
+        }
     }
 
     // ------------------------------------------------------------------ outputs

@@ -1,5 +1,7 @@
 package io.github.wyze3306.jtb.resourcepack;
 
+import io.github.wyze3306.jtb.sound.CustomSounds;
+
 import java.util.Locale;
 
 /**
@@ -46,7 +48,8 @@ public final class JavaAssetNames {
 
     /** {@link #soundEvent} without the namespace (the key in {@code assets/jtb/sounds.json}). */
     public static String soundEventPath(String bedrockName) {
-        return sanitize(bedrockName, true);
+        // One convention for both sides: the sound translator plays CustomSounds.key(name).
+        return CustomSounds.path(bedrockName);
     }
 
     /**

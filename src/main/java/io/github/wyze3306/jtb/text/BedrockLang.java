@@ -1,7 +1,6 @@
 package io.github.wyze3306.jtb.text;
 
 import io.github.wyze3306.jtb.assets.BedrockAssets;
-import io.github.wyze3306.jtb.auth.ClientDataBuilder;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,14 +50,52 @@ public final class BedrockLang implements BedrockTranslation.Lookup {
     public static BedrockLang forJavaLocale(String javaLocale) {
         BedrockLang lang = BY_JAVA_LOCALE.get(javaLocale);
         if (lang == null) {
-            String code = ClientDataBuilder.bedrockLanguage(javaLocale, ENGLISH_CODE);
-            if (!AVAILABLE.contains(code)) {
-                code = ENGLISH_CODE;
-            }
-            lang = forCode(code);
+            lang = forCode(codeForJavaLocale(javaLocale, ENGLISH_CODE));
             BY_JAVA_LOCALE.put(javaLocale, lang);
         }
         return lang;
+    }
+
+    /**
+     * The Bedrock language code closest to a Java locale: the same language and region when Bedrock
+     * has it ({@code fr_fr} -> {@code fr_FR}), else the Bedrock variant of the language
+     * ({@code fr_be} -> {@code fr_FR}, {@code es_ar} -> {@code es_MX}, {@code zh_hk} -> {@code zh_TW},
+     * {@code no_no} -> {@code nb_NO}), else {@code fallback}.
+     */
+    public static String codeForJavaLocale(@Nullable String javaLocale, String fallback) {
+        if (javaLocale == null || javaLocale.length() < 5 || javaLocale.charAt(2) != '_') {
+            return fallback;
+        }
+        String language = javaLocale.substring(0, 2).toLowerCase(Locale.ROOT);
+        String region = javaLocale.substring(3).toUpperCase(Locale.ROOT);
+        if (language.equals("no") || language.equals("nn")) {
+            language = "nb";
+        }
+        String exact = language + "_" + region;
+        if (AVAILABLE.contains(exact)) {
+            return exact;
+        }
+        String preferred = switch (language) {
+            case "en" -> List.of("AU", "NZ", "IE", "ZA", "IN").contains(region) ? "en_GB" : "en_US";
+            case "es" -> "es_MX";
+            case "pt" -> "pt_BR";
+            case "zh" -> region.equals("SG") ? "zh_CN" : "zh_TW";
+            default -> null;
+        };
+        if (preferred != null) {
+            return preferred;
+        }
+        // The language's own country first (fr_FR for fr_be, not fr_CA), else its only variant.
+        String home = language + "_" + language.toUpperCase(Locale.ROOT);
+        if (AVAILABLE.contains(home)) {
+            return home;
+        }
+        for (String code : AVAILABLE) {
+            if (code.startsWith(language + "_")) {
+                return code;
+            }
+        }
+        return fallback;
     }
 
     public static BedrockLang forCode(String code) {

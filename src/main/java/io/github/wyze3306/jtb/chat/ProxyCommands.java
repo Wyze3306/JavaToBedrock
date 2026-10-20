@@ -2,6 +2,7 @@ package io.github.wyze3306.jtb.chat;
 
 import io.github.wyze3306.jtb.JavaToBedrock;
 import io.github.wyze3306.jtb.chat.CommandTree.Node;
+import io.github.wyze3306.jtb.form.FormState;
 import io.github.wyze3306.jtb.network.bedrock.BedrockReconnect;
 import io.github.wyze3306.jtb.network.bedrock.BedrockServers;
 import io.github.wyze3306.jtb.network.java.JavaKeepAlive;
@@ -18,7 +19,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * {@code /jtb [info|version|ping|server [name]]}, answered by the proxy itself. Only offered when the
+ * {@code /jtb [info|version|ping|settings|server [name]]}, answered by the proxy itself. Only offered when the
  * Bedrock server has no command of that name, in which case the server's command wins.
  * {@code server} lists the Bedrock servers of {@code bedrock.servers} and moves the player to one;
  * it exists only when such servers are configured.
@@ -26,7 +27,7 @@ import java.util.Locale;
 final class ProxyCommands {
 
     static final String NAME = "jtb";
-    private static final List<String> SUBCOMMANDS = List.of("info", "version", "ping");
+    private static final List<String> SUBCOMMANDS = List.of("info", "version", "ping", "settings");
 
     private ProxyCommands() {
     }
@@ -68,12 +69,14 @@ final class ProxyCommands {
             }
             case "version" -> send(session, version(session));
             case "ping" -> send(session, ping(session));
+            // What the Bedrock client shows in its settings screen (server settings forms).
+            case "settings" -> session.get(FormState.KEY).openServerSettings();
             default -> {
                 String[] words = arguments.strip().split("\\s+");
                 if (words[0].equalsIgnoreCase("server") && hasServers(session)) {
                     server(session, words.length > 1 ? words[1] : null);
                 } else {
-                    send(session, Component.text("Usage : /jtb [info|version|ping" + (hasServers(session) ? "|server [nom]" : "") + "]",
+                    send(session, Component.text("Usage : /jtb [info|version|ping|settings" + (hasServers(session) ? "|server [nom]" : "") + "]",
                             NamedTextColor.RED));
                 }
             }
