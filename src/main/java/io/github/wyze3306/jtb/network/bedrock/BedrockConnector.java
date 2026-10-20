@@ -110,6 +110,7 @@ public final class BedrockConnector implements AutoCloseable {
         if (session.isClosed()) {
             return;
         }
+        session.setXuid(login.xuid());
         ProxyConfig.Bedrock config = this.proxy.config().bedrock();
         InetSocketAddress address = new InetSocketAddress(config.address(), config.port());
         BedrockCodec codec = codecForServer();

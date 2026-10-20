@@ -57,6 +57,7 @@ public final class ProxySession {
     private long tickCount;
     private String locale = "en_us";
     private String bedrockName;
+    private String xuid = "";
     private volatile boolean closed;
 
     public ProxySession(JavaToBedrock proxy, Session javaSession, GameProfile profile, EventLoop eventLoop) {
@@ -81,6 +82,18 @@ public final class ProxySession {
 
     public void setBedrockName(String bedrockName) {
         this.bedrockName = bedrockName;
+    }
+
+    /**
+     * The Xbox user id the Bedrock server knows this player by (derived from the Java identity in
+     * offline mode). Servers with Xbox authentication drop chat whose sender XUID differs.
+     */
+    public String getXuid() {
+        return this.xuid;
+    }
+
+    public void setXuid(String xuid) {
+        this.xuid = xuid;
     }
 
     public GameProfile getProfile() {
