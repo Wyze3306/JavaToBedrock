@@ -209,8 +209,16 @@ public final class InventoryScenario extends InventoryScript {
                 new ItemStack(this.diamond, 5, null))));
         step("check creative", 1, () -> check("creative slot: 5 diamonds created", is(0, 40, this.diamond, 5)));
         serverCount("diamond", 5);
-        step("creative clear slot", 20, () -> this.context.send(new ServerboundSetCreativeModeSlotPacket((short) 40, null)));
-        step("check creative clear", 1, () -> check("creative slot cleared", empty(0, 40)));
+        step("creative move", 20, () -> {
+            // What the creative screen sends for a move: the emptied slot, then the filled one (with the item it shows).
+            ItemStack moved = item(0, 40);
+            this.context.send(new ServerboundSetCreativeModeSlotPacket((short) 40, null));
+            this.context.send(new ServerboundSetCreativeModeSlotPacket((short) 41, moved));
+        });
+        step("check creative move", 1, () -> check("creative move keeps the stack", is(0, 41, this.diamond, 5) && empty(0, 40)));
+        serverCount("diamond", 5);
+        step("creative clear slot", 20, () -> this.context.send(new ServerboundSetCreativeModeSlotPacket((short) 41, null)));
+        step("check creative clear", 1, () -> check("creative slot cleared", empty(0, 41)));
         step("close creative inventory", 15, this::close);
         step("check parked items", 1, () -> check("closing the creative inventory leaves no carried item", cursorEmpty()));
         step("creative chest", 30, () -> use(this.chest));

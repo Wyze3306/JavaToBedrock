@@ -541,6 +541,7 @@ public final class ItemTranslator {
 
     // ------------------------------------------------------------------ helpers
 
+    /** Whether a Bedrock stack is empty (null, air, or no items). */
     public static boolean isAir(@Nullable ItemData item) {
         return item == null || item.getCount() <= 0 || item.getDefinition() == null
                 || item.getDefinition().getRuntimeId() == 0 || "minecraft:air".equals(item.getDefinition().getIdentifier());

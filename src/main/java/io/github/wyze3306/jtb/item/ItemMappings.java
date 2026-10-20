@@ -251,12 +251,14 @@ public final class ItemMappings {
         }
     }
 
+    /** The mapping data, loaded once from the resources. */
     public static ItemMappings get() {
         return INSTANCE;
     }
 
     // ------------------------------------------------------------------ Java items
 
+    /** Number of Java items (the registry size). */
     public int javaItemCount() {
         return this.javaItems.length;
     }
@@ -266,6 +268,7 @@ public final class ItemMappings {
         return id >= 0 && id < this.javaItems.length ? this.javaItems[id] : this.javaItems[0];
     }
 
+    /** The Java item with this key, or null. */
     public @Nullable JavaItem javaItem(Key key) {
         return this.javaItemsByKey.get(key);
     }
@@ -309,6 +312,7 @@ public final class ItemMappings {
         return this.potionIds.getInt(potion);
     }
 
+    /** Java potion key of a potion registry id, or null. */
     public @Nullable Key potion(int id) {
         return id >= 0 && id < this.potions.size() ? this.potions.get(id) : null;
     }
@@ -338,6 +342,7 @@ public final class ItemMappings {
         return this.bannerPatterns.get(code);
     }
 
+    /** Bedrock pattern code of a Java banner pattern key, or null. */
     public @Nullable String bedrockBannerPattern(Key javaKey) {
         return this.bedrockBannerPatterns.get(javaKey);
     }
