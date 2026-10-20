@@ -3,6 +3,7 @@ package io.github.wyze3306.jtb.player;
 import io.github.wyze3306.jtb.entity.EntityTracker;
 import io.github.wyze3306.jtb.inventory.InventoryState;
 import io.github.wyze3306.jtb.session.ProxySession;
+import io.github.wyze3306.jtb.sound.SoundState;
 import io.github.wyze3306.jtb.world.WorldState;
 import org.cloudburstmc.math.vector.Vector3d;
 import org.cloudburstmc.math.vector.Vector3f;
@@ -76,6 +77,8 @@ final class InteractionTranslators {
             int target = session.get(WorldState.KEY).bedrockBlockAt(position.getX(), position.getY(), position.getZ(), 0);
             player.interactions().useItemOn(position, face, packet.getCursorX(), packet.getCursorY(), packet.getCursorZ(), target);
             sendAction(session, player, PlayerActionType.STOP_ITEM_USE_ON, position, Vector3i.ZERO, 0);
+            // The Java client already played the place sound of a block it placed.
+            session.get(SoundState.KEY).onLocalBlockPlaced(result.getX(), result.getY(), result.getZ());
         }
         player.interactions().acknowledge(packet.getSequence());
     }

@@ -61,7 +61,7 @@ import java.util.List;
  * target the local player it forwards them to the {@code onLocal...} hooks below (mounting included:
  * {@link #onLocalMount}/{@link #onLocalDismount}). The world subsystem reports game rules
  * ({@link #onGameRules}) and dimension changes ({@link #setDimensionChanging}); the sound subsystem
- * forwards block cracking level events to {@link BlockBreaking#onLevelEvent}.
+ * skips the cracking level events of the block being dug ({@link BlockBreaking#isDigging}).
  * <p>
  * Movement: the Java client is the source of truth for where it is; every Java client tick
  * ({@code ServerboundClientTickEnd}) becomes exactly one Bedrock auth input. If the client stops

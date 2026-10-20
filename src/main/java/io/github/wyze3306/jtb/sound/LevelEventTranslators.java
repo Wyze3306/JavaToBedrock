@@ -4,6 +4,7 @@ import io.github.wyze3306.jtb.block.BlockMapper;
 import io.github.wyze3306.jtb.entity.EntityTracker;
 import io.github.wyze3306.jtb.item.ItemRegistry;
 import io.github.wyze3306.jtb.item.ItemTranslator;
+import io.github.wyze3306.jtb.player.BlockBreaking;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.world.WorldState;
 import net.kyori.adventure.text.Component;
@@ -98,9 +99,18 @@ public final class LevelEventTranslators {
             case STOP_RAINING -> state.stopRain();
             case START_THUNDERSTORM -> state.startThunder();
             case STOP_THUNDERSTORM -> state.stopThunder();
-            case BLOCK_START_BREAK -> session.get(BlockCracking.KEY).start(blockPosition(position), data);
-            case BLOCK_UPDATE_BREAK -> session.get(BlockCracking.KEY).update(blockPosition(position), data);
-            case BLOCK_STOP_BREAK -> session.get(BlockCracking.KEY).stop(blockPosition(position));
+            case BLOCK_START_BREAK, BLOCK_UPDATE_BREAK, BLOCK_STOP_BREAK -> {
+                Vector3i block = blockPosition(position);
+                // The Java client draws the cracks of the block its player digs.
+                if (!session.get(BlockBreaking.KEY).isDigging(block.getX(), block.getY(), block.getZ())) {
+                    BlockCracking cracking = session.get(BlockCracking.KEY);
+                    switch (event) {
+                        case BLOCK_START_BREAK -> cracking.start(block, data);
+                        case BLOCK_UPDATE_BREAK -> cracking.update(block, data);
+                        default -> cracking.stop(block);
+                    }
+                }
+            }
             case PARTICLE_SOUND_GUARDIAN_GHOST -> {
                 session.sendJava(new ClientboundGameEventPacket(GameEvent.GUARDIAN_ELDER_EFFECT, new ElderGuardianEffectValue(1)));
                 // MCProtocolLib writes 0 for the effect's "play the sound" flag: play the curse ourselves.
