@@ -58,6 +58,8 @@ public final class WorldScenario implements E2eScenario {
     private final AtomicBoolean commands = new AtomicBoolean();
     private final Map<Long, Integer> lastBlockUpdates = new ConcurrentHashMap<>();
     private final AtomicBoolean glowstoneLight = new AtomicBoolean();
+    /** False while every chunk came with sky light 15 everywhere: the proxy runs with {@code lighting: full-bright}. */
+    private final AtomicBoolean computedLight = new AtomicBoolean();
     private int baseX;
     private int baseY;
     private int baseZ;
@@ -135,6 +137,9 @@ public final class WorldScenario implements E2eScenario {
         if (hasLevelBetween(light.getSkyUpdates())) {
             this.chunksWithSkyGradient.incrementAndGet();
         }
+        if (!allFull(light.getSkyUpdates()) || !light.getBlockUpdates().isEmpty()) {
+            this.computedLight.set(true);
+        }
         if (hasLevelAbove(light.getBlockUpdates(), 0)) {
             this.chunksWithBlockLight.incrementAndGet();
         }
@@ -171,6 +176,17 @@ public final class WorldScenario implements E2eScenario {
             }
         }
         return false;
+    }
+
+    private static boolean allFull(java.util.List<byte[]> arrays) {
+        for (byte[] array : arrays) {
+            for (byte b : array) {
+                if (b != (byte) 0xFF) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private static boolean hasLevelAbove(java.util.List<byte[]> arrays, int level) {
@@ -270,7 +286,11 @@ public final class WorldScenario implements E2eScenario {
         context.check("biome ids are valid", this.badBiomes.get() == 0);
         context.check("heightmaps present", this.missingHeightmaps.get() == 0);
         context.check("sky light covers every section", this.chunksWithoutSky.get() == 0);
-        context.check("sky light is computed (levels between 0 and 15)", this.chunksWithSkyGradient.get() > 10);
+        if (this.computedLight.get()) {
+            context.check("sky light is computed (levels between 0 and 15)", this.chunksWithSkyGradient.get() > 10);
+        } else {
+            context.log("full-bright lighting: every chunk has sky light 15 everywhere");
+        }
         context.check("block updates only for chunks the client has", this.updatesForUnknownChunks.get() == 0);
         context.check("light updates only for chunks the client has", this.lightUpdatesForUnknownChunks.get() == 0);
         context.check("time received", context.last(ClientboundSetTimePacket.class) != null);
@@ -281,7 +301,9 @@ public final class WorldScenario implements E2eScenario {
                     this.lastBlockUpdates.get(blockKey(this.baseX, this.baseY - 1, this.baseZ))));
             context.check("setblock glowstone then air shown", blockAt(this.baseX + 2, this.baseY + 1, this.baseZ) == JavaBlockStates.AIR
                     && this.lastBlockUpdates.containsKey(blockKey(this.baseX + 2, this.baseY + 1, this.baseZ)) && glowstone > 0);
-            context.check("glowstone lit its block (light update with block light 15)", this.glowstoneLight.get());
+            if (this.computedLight.get()) {
+                context.check("glowstone lit its block (light update with block light 15)", this.glowstoneLight.get());
+            }
         } else {
             context.log("setblock checks skipped: this build does not forward commands");
         }

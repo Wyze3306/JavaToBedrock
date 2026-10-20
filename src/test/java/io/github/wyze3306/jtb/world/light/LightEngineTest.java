@@ -66,6 +66,10 @@ class LightEngineTest {
         sections[s] = section.withJava(BlockStorage.index(x, y & 15, z), state);
     }
 
+    private static int cell(int x, int y, int z) {
+        return x | (z << 4) | (y << 8);
+    }
+
     /** Light level from a light update data (light section = block section + 1). */
     private static int level(LightUpdateData data, boolean sky, int x, int y, int z) {
         BitSet mask = sky ? data.getSkyYMask() : data.getBlockYMask();
@@ -120,9 +124,8 @@ class LightEngineTest {
         engine.markSent(0, 0);
 
         // Remove the glowstone: block light goes away and is reported.
-        ChunkSection[] after = sections.clone();
-        set(after, 8, 40, 8, JavaBlockStates.AIR);
-        engine.blockChanged(0, 0, 2, after[2], 8, 40, 8, glowstone, JavaBlockStates.AIR);
+        set(sections, 8, 40, 8, JavaBlockStates.AIR);
+        engine.blocksChanged(0, 0, new int[]{cell(8, 40, 8)}, new int[]{glowstone}, new int[]{JavaBlockStates.AIR});
         LightUpdateData cleared = engine.lightData(0, 0);
         assertEquals(0, level(cleared, false, 9, 40, 8));
         int[] updates = {0};
@@ -130,7 +133,7 @@ class LightEngineTest {
         assertEquals(1, updates[0], "one light update for the changed column");
 
         // A roof over the open sky darkens below it; a torch below lights it again.
-        ChunkSection[] roofed = after.clone();
+        ChunkSection[] roofed = sections.clone();
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
                 set(roofed, x, 50, z, stone);
@@ -139,21 +142,33 @@ class LightEngineTest {
         LightEngine roof = new LightEngine(LAYOUT, lightTable);
         roof.load(0, 0, roofed);
         assertEquals(0, level(roof.lightData(0, 0), true, 8, 40, 8), "no sky under a closed roof");
-        ChunkSection[] lit = roofed.clone();
-        set(lit, 8, 40, 8, torch);
-        roof.blockChanged(0, 0, 2, lit[2], 8, 40, 8, JavaBlockStates.AIR, torch);
+        set(roofed, 8, 40, 8, torch);
+        roof.blocksChanged(0, 0, new int[]{cell(8, 40, 8)}, new int[]{JavaBlockStates.AIR}, new int[]{torch});
         assertEquals(14, level(roof.lightData(0, 0), false, 8, 40, 8));
         assertEquals(13, level(roof.lightData(0, 0), false, 8, 41, 8));
         // Opening the roof above lets the sky back in down the hole.
-        ChunkSection[] open = lit.clone();
-        set(open, 8, 50, 8, JavaBlockStates.AIR);
-        roof.blockChanged(0, 0, 3, open[3], 8, 50, 8, stone, JavaBlockStates.AIR);
+        set(roofed, 8, 50, 8, JavaBlockStates.AIR);
+        roof.blocksChanged(0, 0, new int[]{cell(8, 50, 8)}, new int[]{stone}, new int[]{JavaBlockStates.AIR});
         assertEquals(15, level(roof.lightData(0, 0), true, 8, 45, 8));
         assertEquals(14, level(roof.lightData(0, 0), true, 9, 45, 8));
         // Closing it again removes it.
-        roof.blockChanged(0, 0, 3, lit[3], 8, 50, 8, JavaBlockStates.AIR, stone);
+        set(roofed, 8, 50, 8, stone);
+        roof.blocksChanged(0, 0, new int[]{cell(8, 50, 8)}, new int[]{JavaBlockStates.AIR}, new int[]{stone});
         assertEquals(0, level(roof.lightData(0, 0), true, 8, 45, 8));
         assertEquals(0, level(roof.lightData(0, 0), true, 9, 45, 8));
+        // Several changes at once (one packet): a 3x3 hole opens the roof.
+        int[] cells = new int[9];
+        int[] old = new int[9];
+        int[] now = new int[9];
+        for (int i = 0; i < 9; i++) {
+            set(roofed, 7 + i % 3, 50, 7 + i / 3, JavaBlockStates.AIR);
+            cells[i] = cell(7 + i % 3, 50, 7 + i / 3);
+            old[i] = stone;
+            now[i] = JavaBlockStates.AIR;
+        }
+        roof.blocksChanged(0, 0, cells, old, now);
+        assertEquals(15, level(roof.lightData(0, 0), true, 7, 40, 9), "sky down the 3x3 hole");
+        assertEquals(14, level(roof.lightData(0, 0), true, 10, 45, 8));
     }
 
     @Test

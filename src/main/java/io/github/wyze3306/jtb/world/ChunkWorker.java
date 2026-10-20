@@ -23,11 +23,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * The per-session serial worker that owns the light of the loaded chunks and builds chunk packets.
  * Tasks run one at a time, in submission order, on the shared worker pool; results go back to the
- * session loop with {@code session.execute}, which keeps their order. After each run of tasks, the
- * light changes of chunks the client already has are sent as light updates.
+ * session loop with {@code session.execute}, which keeps their order. Light changes of chunks the
+ * client already has are sent as light updates when the session loop calls {@link #flushLight()}.
  * <p>
  * The session loop must submit, for a chunk, {@link #load} before {@link #build}, and every block
- * change of a loaded chunk through {@link #blockChanged}: the worker's copy of the sections is the
+ * change of a loaded chunk through {@link #blocksChanged}: the worker's copy of the sections is the
  * one packets are built from.
  */
 final class ChunkWorker implements Runnable {
@@ -49,6 +49,8 @@ final class ChunkWorker implements Runnable {
     private final boolean fullBright;
     private final byte[] lightTable;
     private volatile boolean closed;
+    /** Session loop: whether light may have changed since the last {@link #flushLight}. */
+    private boolean lightChanged;
     // Worker-confined state.
     private ChunkLayout layout;
     private @Nullable LightEngine light;
@@ -98,15 +100,6 @@ final class ChunkWorker implements Runnable {
                     break; // let other sessions use this thread
                 }
             }
-            LightEngine engine = this.light;
-            if (engine != null && !this.closed) {
-                engine.drainUpdates((x, z, data) -> {
-                    ClientboundLightUpdatePacket packet = new ClientboundLightUpdatePacket(x, z, data.getSkyYMask(),
-                            data.getBlockYMask(), data.getEmptySkyYMask(), data.getEmptyBlockYMask(),
-                            data.getSkyUpdates(), data.getBlockUpdates());
-                    this.session.execute(() -> this.output.lightUpdated(x, z, packet));
-                });
-            }
         } finally {
             this.scheduled.set(false);
             if (!this.tasks.isEmpty() && !this.closed && this.scheduled.compareAndSet(false, true)) {
@@ -117,6 +110,29 @@ final class ChunkWorker implements Runnable {
                 }
             }
         }
+    }
+
+    /**
+     * Sends the light changes of chunks the client has, as one light update per chunk (called once
+     * per tick by the session loop, like a vanilla server broadcasts light changes).
+     */
+    void flushLight() {
+        if (!this.lightChanged) {
+            return;
+        }
+        this.lightChanged = false;
+        submit(() -> {
+            LightEngine engine = this.light;
+            if (engine == null) {
+                return;
+            }
+            engine.drainUpdates((x, z, data) -> {
+                ClientboundLightUpdatePacket packet = new ClientboundLightUpdatePacket(x, z, data.getSkyYMask(),
+                        data.getBlockYMask(), data.getEmptySkyYMask(), data.getEmptyBlockYMask(),
+                        data.getSkyUpdates(), data.getBlockUpdates());
+                this.session.execute(() -> this.output.lightUpdated(x, z, packet));
+            });
+        });
     }
 
     /** Starts a new world (join, dimension change): every chunk is forgotten. */
@@ -130,6 +146,7 @@ final class ChunkWorker implements Runnable {
     }
 
     void load(int x, int z, @Nullable ChunkSection[] sections) {
+        this.lightChanged = true;
         ChunkSection[] copy = sections.clone();
         submit(() -> {
             this.sections.put(key(x, z), copy);
@@ -150,17 +167,22 @@ final class ChunkWorker implements Runnable {
         });
     }
 
-    void blockChanged(int x, int z, int sectionIndex, ChunkSection section, int lx, int y, int lz, int oldState, int newState) {
+    /**
+     * Block changes in one column: replaced sections ({@code indices}/{@code sections}) and the cells
+     * whose Java state changed ({@code x | z << 4 | (y - minY) << 8}).
+     */
+    void blocksChanged(int x, int z, int[] indices, ChunkSection[] sections, int[] cells, int[] oldStates, int[] newStates) {
+        this.lightChanged = true;
         submit(() -> {
             ChunkSection[] column = this.sections.get(key(x, z));
             if (column == null) {
                 return;
             }
-            if (this.light != null) {
-                // The engine shares this array and replaces the section itself.
-                this.light.blockChanged(x, z, sectionIndex, section, lx, y, lz, oldState, newState);
-            } else {
-                column[sectionIndex] = section;
+            for (int i = 0; i < indices.length; i++) {
+                column[indices[i]] = sections[i];
+            }
+            if (this.light != null && cells.length > 0) {
+                this.light.blocksChanged(x, z, cells, oldStates, newStates);
             }
         });
     }

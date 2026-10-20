@@ -105,59 +105,96 @@ public final class LightEngine {
     }
 
     /**
-     * Applies a block change: {@code section} replaced Java section {@code sectionIndex} of the column,
-     * and the block at {@code (lx, y, lz)} (Java block y) went from {@code oldState} to {@code newState}.
+     * Relights after block changes in one column, whose sections the caller already replaced (the
+     * engine shares the column's section array). {@code cells} are {@code x | z << 4 | (y - minY) << 8};
+     * all changes are relit together.
      */
-    public void blockChanged(int x, int z, int sectionIndex, ChunkSection section, int lx, int y, int lz,
-                             int oldState, int newState) {
+    public void blocksChanged(int x, int z, int[] cells, int[] oldStates, int[] newStates) {
         LightColumn column = this.columns.get(key(x, z));
         if (column == null) {
             return;
         }
-        column.sections[sectionIndex] = section;
-        if (this.lightTable[oldState] == this.lightTable[newState]
-                && JavaBlockStates.occlusion(oldState) == JavaBlockStates.occlusion(newState)) {
+        int count = 0;
+        int[] changed = new int[cells.length];
+        for (int i = 0; i < cells.length; i++) {
+            if (this.lightTable[oldStates[i]] != this.lightTable[newStates[i]]
+                    || JavaBlockStates.occlusion(oldStates[i]) != JavaBlockStates.occlusion(newStates[i])) {
+                changed[count++] = cells[i];
+            }
+        }
+        if (count == 0) {
             return;
         }
         selectRegion(x, z);
-        int ly = y - this.layout.javaMinY() + 16;
-        int rx = 16 + lx;
-        int rz = 16 + lz;
         if (this.hasSky) {
-            int c = lx | (lz << 4);
-            int oldSource = column.skySource[c];
-            int newSource = computeSource(column, lx, lz);
-            column.skySource[c] = newSource;
-            for (int sy = oldSource; sy < newSource; sy++) {
-                column.setSky(lx, sy, lz, 0);
-                this.decrease.add(pack(rx, rz, sy, 15));
-            }
-            int level = column.sky(lx, ly, lz);
-            if (ly < newSource && level > 0 && (ly < oldSource || ly >= newSource)) {
-                column.setSky(lx, ly, lz, 0);
-                this.decrease.add(pack(rx, rz, ly, level));
-            }
-            propagateDecrease(true);
-            for (int sy = newSource; sy < oldSource; sy++) {
-                column.setSky(lx, sy, lz, 15);
-                this.increase.add(pack(rx, rz, sy, 15));
-            }
-            seedAround(rx, rz, ly, true);
-            propagateIncrease(true);
+            relightSky(column, changed, count);
         }
-        int level = column.block(lx, ly, lz);
-        if (level > 0) {
-            column.setBlock(lx, ly, lz, 0);
-            this.decrease.add(pack(rx, rz, ly, level));
+        for (int i = 0; i < count; i++) {
+            int lx = changed[i] & 15;
+            int lz = (changed[i] >> 4) & 15;
+            int ly = (changed[i] >> 8) + 16;
+            int level = column.block(lx, ly, lz);
+            if (level > 0) {
+                column.setBlock(lx, ly, lz, 0);
+                this.decrease.add(pack(16 + lx, 16 + lz, ly, level));
+            }
         }
         propagateDecrease(false);
-        int emission = this.lightTable[newState] >> 4 & 15;
-        if (emission > 0) {
-            column.setBlock(lx, ly, lz, emission);
-            this.increase.add(pack(rx, rz, ly, emission));
+        for (int i = 0; i < count; i++) {
+            int lx = changed[i] & 15;
+            int lz = (changed[i] >> 4) & 15;
+            int ly = (changed[i] >> 8) + 16;
+            int emission = this.lightTable[stateAt(column, lx, ly, lz)] >> 4 & 15;
+            if (emission > column.block(lx, ly, lz)) {
+                column.setBlock(lx, ly, lz, emission);
+                this.increase.add(pack(16 + lx, 16 + lz, ly, emission));
+            }
+            seedAround(16 + lx, 16 + lz, ly, false);
         }
-        seedAround(rx, rz, ly, false);
         propagateIncrease(false);
+    }
+
+    private void relightSky(LightColumn column, int[] changed, int count) {
+        int[] oldSources = new int[256];
+        Arrays.fill(oldSources, -1);
+        for (int i = 0; i < count; i++) {
+            int c = changed[i] & 0xFF;
+            if (oldSources[c] < 0) {
+                int lx = c & 15;
+                int lz = c >> 4;
+                oldSources[c] = column.skySource[c];
+                int newSource = computeSource(column, lx, lz);
+                column.skySource[c] = newSource;
+                for (int ly = oldSources[c]; ly < newSource; ly++) {
+                    column.setSky(lx, ly, lz, 0);
+                    this.decrease.add(pack(16 + lx, 16 + lz, ly, 15));
+                }
+            }
+        }
+        for (int i = 0; i < count; i++) {
+            int c = changed[i] & 0xFF;
+            int lx = c & 15;
+            int lz = c >> 4;
+            int ly = (changed[i] >> 8) + 16;
+            int level = column.sky(lx, ly, lz);
+            if (level > 0 && ly < column.skySource[c] && ly < oldSources[c]) {
+                column.setSky(lx, ly, lz, 0);
+                this.decrease.add(pack(16 + lx, 16 + lz, ly, level));
+            }
+        }
+        propagateDecrease(true);
+        for (int c = 0; c < 256; c++) {
+            if (oldSources[c] >= 0) {
+                for (int ly = column.skySource[c]; ly < oldSources[c]; ly++) {
+                    column.setSky(c & 15, ly, c >> 4, 15);
+                    this.increase.add(pack(16 + (c & 15), 16 + (c >> 4), ly, 15));
+                }
+            }
+        }
+        for (int i = 0; i < count; i++) {
+            seedAround(16 + (changed[i] & 15), 16 + ((changed[i] >> 4) & 15), (changed[i] >> 8) + 16, true);
+        }
+        propagateIncrease(true);
     }
 
     /** Marks a column as known by the client: later changes are reported by {@link #drainUpdates}. */

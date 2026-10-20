@@ -33,9 +33,9 @@ public final class BlockEntityTranslator {
 
     private static final String[] DYES = {"white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray",
             "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"};
-    /** Java sign text colours ({@code DyeColor.getTextColor}), same order as {@link #DYES}. */
-    private static final int[] DYE_TEXT_RGB = {0xFFFFFF, 0xFF681F, 0xFF00FF, 0x9AC0CD, 0xFFFF00, 0xBFFF00, 0xFF69B4, 0x808080,
-            0xD3D3D3, 0x00FFFF, 0xA020F0, 0x0000FF, 0x8B4513, 0x00FF00, 0xFF0000, 0x000000};
+    /** Text colours Bedrock signs get from each dye (black is the default text), same order as {@link #DYES}. */
+    private static final int[] DYE_SIGN_RGB = {0xF0F0F0, 0xF9801D, 0xC74EBD, 0x3AB3DA, 0xFED83D, 0x80C71F, 0xF38BAA, 0x474F52,
+            0x9D9D97, 0x169C9C, 0x8932B8, 0x3C44AA, 0x835432, 0x5E7C16, 0xB02E26, 0x000000};
     /** Patterns of the ominous banner (Bedrock {@code Type: 1} carries no pattern list). */
     private static final String[][] OMINOUS = {{"rhombus", "cyan"}, {"stripe_bottom", "light_gray"}, {"stripe_center", "gray"},
             {"border", "light_gray"}, {"stripe_middle", "black"}, {"half_horizontal", "light_gray"}, {"circle", "light_gray"},
@@ -201,8 +201,8 @@ public final class BlockEntityTranslator {
     private static String nearestDye(int rgb) {
         int best = 15;
         long bestDistance = Long.MAX_VALUE;
-        for (int i = 0; i < DYE_TEXT_RGB.length; i++) {
-            int c = DYE_TEXT_RGB[i];
+        for (int i = 0; i < DYE_SIGN_RGB.length; i++) {
+            int c = DYE_SIGN_RGB[i];
             long dr = ((c >> 16) & 255) - ((rgb >> 16) & 255);
             long dg = ((c >> 8) & 255) - ((rgb >> 8) & 255);
             long db = (c & 255) - (rgb & 255);

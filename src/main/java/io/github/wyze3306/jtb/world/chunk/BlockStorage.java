@@ -91,10 +91,39 @@ public final class BlockStorage {
         return false;
     }
 
-    /** A copy with one block changed. */
+    /** A copy with one block changed (one 4 KiB copy when the value fits the current palette). */
     public BlockStorage with(int index, int value) {
         if (get(index) == value) {
             return this;
+        }
+        int entry = -1;
+        for (int i = 0; i < this.palette.length; i++) {
+            if (this.palette[i] == value) {
+                entry = i;
+                break;
+            }
+        }
+        int[] newPalette = this.palette;
+        if (entry < 0) {
+            entry = this.palette.length;
+            newPalette = Arrays.copyOf(this.palette, entry + 1);
+            newPalette[entry] = value;
+        }
+        if (this.narrow != null && entry < 256) {
+            byte[] copy = this.narrow.clone();
+            copy[index] = (byte) entry;
+            return new BlockStorage(newPalette, copy, null);
+        }
+        if (this.wide != null) {
+            char[] copy = this.wide.clone();
+            copy[index] = (char) entry;
+            return new BlockStorage(newPalette, null, copy);
+        }
+        if (this.narrow == null) {
+            // Uniform: palette [old, value].
+            byte[] indices = new byte[SIZE];
+            indices[index] = 1;
+            return new BlockStorage(new int[]{this.palette[0], value}, indices, null);
         }
         Builder builder = toBuilder();
         builder.set(index, value);

@@ -31,6 +31,7 @@ import sys
 from collections import Counter, defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.dont_write_bytecode = True
 sys.path.insert(0, HERE)
 import nbtlib  # noqa: E402
 

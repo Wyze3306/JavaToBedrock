@@ -128,8 +128,7 @@ final class WorldTranslators {
         ChunkManager chunks = session.get(WorldState.KEY).chunks();
         Vector3i position = packet.getBlockPosition();
         if (chunks != null && position != null && packet.getDefinition() != null) {
-            chunks.setBlock(position.getX(), position.getY(), position.getZ(), packet.getLayer(),
-                    packet.getDefinition().getRuntimeId(), null);
+            chunks.setBlock(position.getX(), position.getY(), position.getZ(), packet.getLayer(), packet.getDefinition().getRuntimeId());
         }
     }
 
@@ -138,17 +137,19 @@ final class WorldTranslators {
         if (chunks == null) {
             return;
         }
+        ChunkManager.BlockBatch batch = new ChunkManager.BlockBatch();
+        add(batch, packet.getStandardBlocks(), 0);
+        add(batch, packet.getExtraBlocks(), 1);
         ChunkManager.ChangeSet changes = new ChunkManager.ChangeSet();
-        apply(chunks, packet.getStandardBlocks(), 0, changes);
-        apply(chunks, packet.getExtraBlocks(), 1, changes);
+        chunks.setBlocks(batch, changes);
         chunks.flushChanges(changes);
     }
 
-    private static void apply(ChunkManager chunks, List<BlockChangeEntry> entries, int layer, ChunkManager.ChangeSet changes) {
+    private static void add(ChunkManager.BlockBatch batch, List<BlockChangeEntry> entries, int layer) {
         for (BlockChangeEntry entry : entries) {
             Vector3i position = entry.getPos();
             if (position != null && entry.getDefinition() != null) {
-                chunks.setBlock(position.getX(), position.getY(), position.getZ(), layer, entry.getDefinition().getRuntimeId(), changes);
+                batch.add(position.getX(), position.getY(), position.getZ(), layer, entry.getDefinition().getRuntimeId());
             }
         }
     }
@@ -244,6 +245,8 @@ final class WorldTranslators {
         WorldState world = session.get(WorldState.KEY);
         PlayerState player = session.get(PlayerState.KEY);
         int dimension = packet.getDimension().getValue();
+        session.logger().debug("[{}] Dimension change to {} at {} (loading screen {})", session.getName(), dimension,
+                packet.getPosition(), packet.getLoadingScreenId());
         Key worldKey = world.changeDimension(dimension, packet.getLoadingScreenId());
         PlayerSpawnInfo info = new PlayerSpawnInfo(JavaDimensions.typeId(dimension), worldKey, 0L,
                 GameModes.toJava(player.gameType()), null, false, false, null, 0, 63);
@@ -268,6 +271,7 @@ final class WorldTranslators {
         }
         WorldState world = session.get(WorldState.KEY);
         Integer loadingScreen = world.finishDimensionChange();
+        session.logger().debug("[{}] Dimension change acknowledged", session.getName());
         PlayerActionPacket ack = new PlayerActionPacket();
         ack.setPlayerRuntimeID(session.get(PlayerState.KEY).runtimeId());
         ack.setAction(PlayerActionType.CHANGE_DIMENSION_ACK);

@@ -286,10 +286,14 @@ final class ChunkManager implements ChunkWorker.Output {
 
     /** The column has all its blocks: apply what arrived meanwhile, light it, wait for neighbours. */
     private void loaded(ChunkColumn column) {
-        for (int[] change : column.pendingBlocks) {
-            setBlock(column, change[0], change[1], change[2], change[3], change[4], null);
+        if (!column.pendingBlocks.isEmpty()) {
+            ColumnEdit edit = new ColumnEdit(column);
+            for (int[] change : column.pendingBlocks) {
+                edit.set(change[0], change[1], change[2], change[3], change[4]);
+            }
+            column.pendingBlocks.clear();
+            edit.finish(null);
         }
-        column.pendingBlocks.clear();
         column.stage = ChunkColumn.Stage.WAITING;
         column.readyAt = System.nanoTime() + NEIGHBOUR_WAIT_NANOS;
         this.worker.load(column.x, column.z, column.sections);
@@ -475,7 +479,12 @@ final class ChunkManager implements ChunkWorker.Output {
         this.viewZ = blockZ >> 4;
         this.viewRadius = Math.max(1, radiusBlocks >> 4);
         setCacheCenter(this.viewX, this.viewZ);
+        int before = this.columns.size();
         unloadOutside();
+        if (this.session.logger().isDebugEnabled() && before != this.columns.size()) {
+            this.session.logger().debug("[{}] View {},{} r{}: {} chunks dropped", this.session.getName(), this.viewX, this.viewZ,
+                    this.viewRadius, before - this.columns.size());
+        }
     }
 
     void onRadiusUpdated(int radius) {
@@ -533,81 +542,164 @@ final class ChunkManager implements ChunkWorker.Output {
 
     // ------------------------------------------------------------------ blocks
 
-    /**
-     * Applies one Bedrock block change.
-     *
-     * @param javaChanges when not null, Java changes are collected there (packed section + entry) instead of being sent
-     * @return true when the Java state changed
-     */
-    boolean setBlock(int x, int y, int z, int layer, int runtimeId, @Nullable ChangeSet javaChanges) {
-        ChunkColumn column = column(x >> 4, z >> 4);
-        if (column == null || layer < 0 || layer > 1) {
-            return false;
-        }
-        if (column.stage == ChunkColumn.Stage.DECODING || column.stage == ChunkColumn.Stage.REQUESTING) {
-            column.pendingBlocks.add(new int[]{x, y, z, layer, runtimeId});
-            return false;
-        }
-        return setBlock(column, x, y, z, layer, runtimeId, javaChanges);
+    /** Applies one Bedrock block change ({@code UpdateBlockPacket}). */
+    void setBlock(int x, int y, int z, int layer, int runtimeId) {
+        BlockBatch batch = new BlockBatch();
+        batch.add(x, y, z, layer, runtimeId);
+        setBlocks(batch, null);
     }
 
-    private boolean setBlock(ChunkColumn column, int x, int y, int z, int layer, int runtimeId,
-                             @Nullable ChangeSet javaChanges) {
-        int index = this.layout.sectionIndex(y);
-        if (index < 0) {
-            return false;
+    /** Bedrock block changes of one packet: x, y, z, layer and runtime id per change. */
+    static final class BlockBatch {
+
+        private final IntArrayList values = new IntArrayList();
+
+        void add(int x, int y, int z, int layer, int runtimeId) {
+            this.values.add(x);
+            this.values.add(y);
+            this.values.add(z);
+            this.values.add(layer);
+            this.values.add(runtimeId);
         }
-        ChunkSection section = column.sections[index];
-        if (section == null) {
-            section = ChunkSection.air(this.mapper.bedrockAir());
+
+        int size() {
+            return this.values.size() / 5;
         }
-        int i = BlockStorage.index(x & 15, y & 15, z & 15);
-        int oldJava = section.javaAt(i);
-        int oldBedrock = section.layer0().get(i);
-        ChunkSection updated = section.with(i, layer, runtimeId, this.mapper);
-        int packed = BlockEntityTranslator.packLocal(x, y, z, this.layout.javaMinY());
-        int newJava = updated.javaAt(i);
-        if (layer == 0 && oldBedrock != runtimeId) {
-            NbtMap nbt = column.bedrockBlockEntities.get(packed);
-            if (nbt != null && JavaBlockStates.blockEntityType(oldJava) != JavaBlockStates.blockEntityType(newJava)) {
-                column.bedrockBlockEntities.remove(packed);
-            } else if (nbt != null) {
-                int fixed = BlockEntityTranslator.javaState(newJava, nbt, x, z, this.mapper);
-                if (fixed != newJava) {
-                    updated = updated.withJava(i, fixed);
-                    newJava = fixed;
+    }
+
+    /**
+     * Applies Bedrock block changes: each touched section is copied once, the light worker gets one
+     * message per chunk, and the client gets block updates (grouped in {@code javaChanges} when given).
+     */
+    void setBlocks(BlockBatch batch, @Nullable ChangeSet javaChanges) {
+        int[] v = batch.values.elements();
+        ColumnEdit edit = null;
+        for (int i = 0, n = batch.size(); i < n; i++) {
+            int x = v[i * 5];
+            int y = v[i * 5 + 1];
+            int z = v[i * 5 + 2];
+            int layer = v[i * 5 + 3];
+            int runtimeId = v[i * 5 + 4];
+            if (edit == null || edit.column.x != x >> 4 || edit.column.z != z >> 4) {
+                if (edit != null) {
+                    edit.finish(javaChanges);
+                }
+                edit = null;
+                ChunkColumn column = column(x >> 4, z >> 4);
+                if (column == null || layer < 0 || layer > 1) {
+                    continue;
+                }
+                if (column.stage == ChunkColumn.Stage.DECODING || column.stage == ChunkColumn.Stage.REQUESTING) {
+                    column.pendingBlocks.add(new int[]{x, y, z, layer, runtimeId});
+                    continue;
+                }
+                edit = new ColumnEdit(column);
+            }
+            edit.set(x, y, z, layer, runtimeId);
+        }
+        if (edit != null) {
+            edit.finish(javaChanges);
+        }
+    }
+
+    /** Pending changes of one column: section editors and the cells whose Java state changed. */
+    private final class ColumnEdit {
+
+        final ChunkColumn column;
+        final ChunkSection.Editor[] editors;
+        final IntArrayList cells = new IntArrayList();
+        final IntArrayList oldStates = new IntArrayList();
+        final IntArrayList newStates = new IntArrayList();
+
+        ColumnEdit(ChunkColumn column) {
+            this.column = column;
+            this.editors = new ChunkSection.Editor[column.sections.length];
+        }
+
+        private ChunkSection.Editor editor(int index) {
+            ChunkSection.Editor editor = this.editors[index];
+            if (editor == null) {
+                ChunkSection section = this.column.sections[index];
+                editor = (section == null ? ChunkSection.air(ChunkManager.this.mapper.bedrockAir()) : section).edit(ChunkManager.this.mapper);
+                this.editors[index] = editor;
+            }
+            return editor;
+        }
+
+        void set(int x, int y, int z, int layer, int runtimeId) {
+            int index = ChunkManager.this.layout.sectionIndex(y);
+            if (index < 0) {
+                return;
+            }
+            ChunkSection.Editor editor = editor(index);
+            int i = BlockStorage.index(x & 15, y & 15, z & 15);
+            int oldJava = editor.javaAt(i);
+            int oldBedrock = editor.bedrockAt(i, 0);
+            editor.set(i, layer, runtimeId);
+            int newJava = editor.javaAt(i);
+            int packed = BlockEntityTranslator.packLocal(x, y, z, ChunkManager.this.layout.javaMinY());
+            NbtMap nbt = this.column.bedrockBlockEntities.get(packed);
+            if (nbt != null && layer == 0 && oldBedrock != runtimeId) {
+                if (JavaBlockStates.blockEntityType(oldJava) != JavaBlockStates.blockEntityType(newJava)) {
+                    this.column.bedrockBlockEntities.remove(packed);
+                } else {
+                    int fixed = BlockEntityTranslator.javaState(newJava, nbt, x, z, ChunkManager.this.mapper);
+                    if (fixed != newJava) {
+                        editor.setJava(i, fixed);
+                        newJava = fixed;
+                    }
                 }
             }
+            if (oldJava != newJava) {
+                this.cells.add(packed);
+                this.oldStates.add(oldJava);
+                this.newStates.add(newJava);
+            }
         }
-        return storeSection(column, index, updated, x, y, z, oldJava, newJava, javaChanges);
+
+        void finish(@Nullable ChangeSet javaChanges) {
+            IntArrayList indices = new IntArrayList();
+            List<ChunkSection> sections = new ArrayList<>();
+            for (int s = 0; s < this.editors.length; s++) {
+                if (this.editors[s] != null) {
+                    ChunkSection section = this.editors[s].build();
+                    this.column.sections[s] = section.isEmpty() ? null : section;
+                    indices.add(s);
+                    sections.add(section);
+                }
+            }
+            if (!indices.isEmpty() && this.column.stage != ChunkColumn.Stage.DECODING && this.column.stage != ChunkColumn.Stage.REQUESTING) {
+                ChunkManager.this.worker.blocksChanged(this.column.x, this.column.z, indices.toIntArray(),
+                        sections.toArray(new ChunkSection[0]), this.cells.toIntArray(), this.oldStates.toIntArray(),
+                        this.newStates.toIntArray());
+            }
+            published(this.column, this.cells, this.newStates, javaChanges);
+        }
     }
 
-    private boolean storeSection(ChunkColumn column, int index, ChunkSection updated, int x, int y, int z, int oldJava, int newJava,
-                                 @Nullable ChangeSet javaChanges) {
-        column.sections[index] = updated.isEmpty() ? null : updated;
-        int packed = BlockEntityTranslator.packLocal(x, y, z, this.layout.javaMinY());
-        if (JavaBlockStates.hasBlockEntity(newJava)) {
-            column.javaBlockEntities.add(packed);
-        } else {
-            column.javaBlockEntities.remove(packed);
-        }
-        if (column.stage != ChunkColumn.Stage.DECODING && column.stage != ChunkColumn.Stage.REQUESTING) {
-            this.worker.blockChanged(column.x, column.z, index, updated, x & 15, y, z & 15, oldJava, newJava);
-        }
-        if (oldJava == newJava) {
-            return false;
-        }
-        if (column.stage == ChunkColumn.Stage.SENT) {
-            BlockChangeEntry entry = new BlockChangeEntry(Vector3i.from(x, y, z), newJava);
-            if (javaChanges == null) {
-                this.session.sendJava(new ClientboundBlockUpdatePacket(entry));
+    /** Client side of changed Java states: block entity positions, then updates (or dirty marks before the chunk is sent). */
+    private void published(ChunkColumn column, IntArrayList cells, IntArrayList newStates, @Nullable ChangeSet javaChanges) {
+        int minY = this.layout.javaMinY();
+        for (int k = 0; k < cells.size(); k++) {
+            int packed = cells.getInt(k);
+            int state = newStates.getInt(k);
+            if (JavaBlockStates.hasBlockEntity(state)) {
+                column.javaBlockEntities.add(packed);
             } else {
-                javaChanges.add(entry);
+                column.javaBlockEntities.remove(packed);
             }
-        } else if (column.isBuilt()) {
-            column.dirty.add(packed);
+            if (column.stage == ChunkColumn.Stage.SENT) {
+                BlockChangeEntry entry = new BlockChangeEntry(Vector3i.from((column.x << 4) | (packed & 15), (packed >> 8) + minY,
+                        (column.z << 4) | ((packed >> 4) & 15)), state);
+                if (javaChanges == null) {
+                    this.session.sendJava(new ClientboundBlockUpdatePacket(entry));
+                } else {
+                    javaChanges.add(entry);
+                }
+            } else if (column.isBuilt()) {
+                column.dirty.add(packed);
+            }
         }
-        return true;
     }
 
     /** Java block changes collected while applying a multi-block Bedrock packet, sent grouped by section. */
@@ -662,7 +754,13 @@ final class ChunkManager implements ChunkWorker.Output {
             int base = this.mapper.toJava(section.layer0().get(i), section.layer1() == null ? this.mapper.bedrockAir() : section.layer1().get(i));
             int fixed = BlockEntityTranslator.javaState(base, nbt, x, z, this.mapper);
             if (fixed != current) {
-                storeSection(column, index, section.withJava(i, fixed), x, y, z, current, fixed, null);
+                ChunkSection updated = section.withJava(i, fixed);
+                column.sections[index] = updated;
+                if (column.stage != ChunkColumn.Stage.DECODING && column.stage != ChunkColumn.Stage.REQUESTING) {
+                    this.worker.blocksChanged(column.x, column.z, new int[]{index}, new ChunkSection[]{updated},
+                            new int[]{packed}, new int[]{current}, new int[]{fixed});
+                }
+                published(column, IntArrayList.of(packed), IntArrayList.of(fixed), null);
                 current = fixed;
             }
         }
@@ -690,6 +788,15 @@ final class ChunkManager implements ChunkWorker.Output {
 
     void tick() {
         long now = System.nanoTime();
+        if (this.session.logger().isDebugEnabled() && this.session.tickCount() % 100 == 0) {
+            int[] stages = new int[ChunkColumn.Stage.values().length];
+            for (ChunkColumn column : this.columns.values()) {
+                stages[column.stage.ordinal()]++;
+            }
+            this.session.logger().debug("[{}] Chunks by stage {}: {}, unacknowledged batches {}/{}, {} chunks/tick",
+                    this.session.getName(), Arrays.toString(ChunkColumn.Stage.values()), Arrays.toString(stages),
+                    this.unacknowledgedBatches, this.maxUnacknowledgedBatches, this.desiredChunksPerTick);
+        }
         if (!this.waiting.isEmpty()) {
             for (ChunkColumn column : this.waiting.toArray(new ChunkColumn[0])) {
                 if (column.stage == ChunkColumn.Stage.WAITING && isReady(column, now)) {
@@ -712,6 +819,7 @@ final class ChunkManager implements ChunkWorker.Output {
                 loaded(column);
             }
         }
+        this.worker.flushLight();
         if (this.session.javaPhase() != ProxySession.JavaPhase.GAME) {
             return;
         }
