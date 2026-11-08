@@ -12,44 +12,50 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.nio.NioIoHandler;
-import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.cloudburstmc.netty.channel.raknet.RakChannelFactory;
-import org.cloudburstmc.netty.channel.raknet.config.RakChannelOption;
+import org.cloudburstmc.netty.channel.nethernet.NetherNetChannelFactory;
+import org.cloudburstmc.netty.channel.nethernet.config.NetherChannelOption;
+import org.cloudburstmc.netty.channel.nethernet.signaling.NetherNetHTTPClientSignaling;
+import org.cloudburstmc.netty.util.nethernet.OperatorIdentity;
 import org.cloudburstmc.protocol.bedrock.BedrockClientSession;
 import org.cloudburstmc.protocol.bedrock.codec.BedrockCodec;
-import org.cloudburstmc.protocol.bedrock.codec.v2192.Bedrock_v2192;
-import org.cloudburstmc.protocol.bedrock.netty.initializer.BedrockClientInitializer;
+import org.cloudburstmc.protocol.bedrock.codec.v2225.Bedrock_v2225;
 import org.cloudburstmc.protocol.bedrock.packet.RequestNetworkSettingsPacket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.net.InetSocketAddress;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Opens the Bedrock (RakNet) connection of each session and starts the Bedrock login.
+ * Opens the Bedrock (NetherNet) connection of each session and starts the Bedrock login.
  */
 public final class BedrockConnector implements AutoCloseable {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(BedrockConnector.class);
 
-    /**
-     * PowerNukkitX 1.26.50 speaks protocol 2193 with the v2192 codec; matching it exactly is what
-     * lets a vanilla client in.
-     */
-    private static final BedrockCodec DEFAULT_CODEC = Bedrock_v2192.CODEC.toBuilder().protocolVersion(2193).build();
+    /** Bedrock 1.26.60 (protocol 2225), what PowerNukkitX speaks. */
+    private static final BedrockCodec DEFAULT_CODEC = Bedrock_v2225.CODEC;
+    /** The name the NetherNet identity carries (token issuer); nothing displays it. */
+    private static final String IDENTITY_DOMAIN = "javatobedrock";
 
     private final JavaToBedrock proxy;
     private final EventLoopGroup group;
     private final BedrockServers servers;
+    /**
+     * The proxy's NetherNet operator key: every offer carries an identity assertion signed with it,
+     * derived for the player it connects (PowerNukkitX refuses unsigned offers with HTTP 401).
+     */
+    private final OperatorIdentity identity;
 
-    public BedrockConnector(JavaToBedrock proxy) {
+    public BedrockConnector(JavaToBedrock proxy) throws Exception {
         this.proxy = proxy;
+        File identityFile = proxy.dataDirectory().resolve(proxy.config().bedrock().nethernetIdentityFile()).toFile();
+        this.identity = OperatorIdentity.fromPemOrCreate(identityFile, IDENTITY_DOMAIN);
         this.servers = new BedrockServers(proxy.config().bedrock());
         this.group = new MultiThreadIoEventLoopGroup(0, new DefaultThreadFactory("jtb-bedrock", true), NioIoHandler.newFactory());
     }
@@ -151,16 +157,26 @@ public final class BedrockConnector implements AutoCloseable {
         BedrockCodec codec = codecForServer(address);
         BedrockReconnect reconnect = session.get(BedrockReconnect.KEY);
 
+        OperatorIdentity playerIdentity;
+        try {
+            playerIdentity = this.identity.forPlayer(login.xuid(), login.displayName());
+        } catch (Exception e) {
+            LOGGER.warn("[{}] Could not sign the NetherNet identity", session.getName(), e);
+            session.disconnect(Component.text("Identité NetherNet impossible : " + rootMessage(e), NamedTextColor.RED));
+            return;
+        }
+        // NetherNet: the SDP offer goes to the server's HTTP signalling endpoint (its listener port, TCP),
+        // then the game runs over WebRTC data channels. One signalling instance per connection.
         Bootstrap bootstrap = new Bootstrap()
                 .group(this.group)
-                .channelFactory(RakChannelFactory.client(NioDatagramChannel.class))
-                .option(RakChannelOption.RAK_PROTOCOL_VERSION, codec.getRaknetProtocolVersion())
-                .option(RakChannelOption.RAK_GUID, ThreadLocalRandom.current().nextLong())
-                .option(RakChannelOption.RAK_CONNECT_TIMEOUT, TimeUnit.SECONDS.toMillis(config.connectTimeoutSeconds()))
-                // A crashed server is noticed after this delay (a clean stop sends a disconnect packet);
-                // RakNet acks run on network threads, so a lagging server does not trip it.
-                .option(RakChannelOption.RAK_SESSION_TIMEOUT, TimeUnit.SECONDS.toMillis(15))
-                .handler(new BedrockClientInitializer() {
+                .channelFactory(NetherNetChannelFactory.client(() -> new NetherNetHTTPClientSignaling()))
+                .option(NetherChannelOption.NETHER_CLIENT_HANDSHAKE_TIMEOUT_MS,
+                        (int) TimeUnit.SECONDS.toMillis(config.connectTimeoutSeconds()))
+                .option(NetherChannelOption.NETHER_CLIENT_IDENTITY, playerIdentity)
+                // No NETHER_CLIENT_SERVER_TRUST: the server's assertion is not checked. TokenTrust.ANY
+                // requires an expiry, and PowerNukkitX signs with a PEM key whose token has none; the
+                // proxy trusts the address it was configured with, like a RakNet connection did.
+                .handler(new NetherNetClientInitializer(codec.getRaknetProtocolVersion()) {
                     @Override
                     protected void initSession(BedrockClientSession bedrock) {
                         // Netty thread: everything that touches the session state hops to its loop.

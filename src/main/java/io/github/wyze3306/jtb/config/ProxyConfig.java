@@ -39,7 +39,8 @@ public final class ProxyConfig {
     public record Java(String bind, int port, boolean onlineMode, int compressionThreshold, String motd, int maxPlayers) {
     }
 
-    public record Bedrock(String address, int port, AuthMode auth, String trustedKeyFile, String usernamePrefix,
+    public record Bedrock(String address, int port, AuthMode auth, String trustedKeyFile, String nethernetIdentityFile,
+                          String usernamePrefix,
                           int connectTimeoutSeconds, String defaultLanguage, boolean followTransfers, Reconnect reconnect,
                           Map<String, String> servers, Map<String, String> forcedHosts) {
     }
@@ -80,6 +81,7 @@ public final class ProxyConfig {
         Section b = root.section("bedrock");
         AuthMode auth = AuthMode.valueOf(b.string("auth").toUpperCase(Locale.ROOT));
         this.bedrock = new Bedrock(b.string("address"), b.integer("port"), auth, b.string("trusted-key-file"),
+                b.string("nethernet-identity-file"),
                 usernamePrefix(b.string("username-prefix"), auth), b.integer("connect-timeout"), b.string("default-language"),
                 b.bool("follow-transfers"),
                 new Reconnect(b.section("reconnect").integer("timeout"), b.section("reconnect").strings("shutdown-messages")),

@@ -4,6 +4,9 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import org.cloudburstmc.nbt.NbtMap;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Chooses the Java state that displays each custom Bedrock block state.
  * <p>
@@ -14,7 +17,9 @@ import org.cloudburstmc.nbt.NbtMap;
  * {@code red_mushroom_block} and {@code mushroom_stem} (64 states each, Bedrock uses at most 16). All
  * are opaque full cubes, the right physics for most custom blocks. Allocation is deterministic: the
  * same definitions, offered in the same order, always get the same carriers, so a cached converted
- * pack stays valid.
+ * pack stays valid. States of one block drawn alike (same model, rotation and light: they differ by
+ * properties nothing visual depends on) share one carrier, so a server with tens of thousands of custom
+ * states still fits; Java to Bedrock then gives the first of them.
  * <p>
  * <b>Extension point.</b> The resource pack subsystem reads {@link BlockMapper#customBlocks()} after
  * StartGame: for every {@link CustomBlock.State} it finds the carrier in {@code javaState} and writes
@@ -39,6 +44,10 @@ public class CustomBlockAllocator {
 
     private final boolean useCarriers;
     private int nextOpaque;
+    /** Carrier of each appearance already allocated: states drawn alike share one. */
+    private final Map<String, Integer> byAppearance = new HashMap<>();
+    private int states;
+    private int fallbacks;
 
     public CustomBlockAllocator(boolean useCarriers) {
         this.useCarriers = useCarriers;
@@ -83,14 +92,47 @@ public class CustomBlockAllocator {
         return Pool.OPAQUE;
     }
 
-    /** Java state for one custom block state. Called in permutation order for every custom block. */
+    /** Java state for one custom block state, or {@link #FALLBACK} when it gets no carrier. */
     public int allocate(String identifier, NbtMap definition, NbtMap states) {
+        int carrier = carrier(identifier, definition, states, CustomBlockComponents.appearanceKey(definition, states));
+        return carrier >= 0 ? carrier : JavaBlockStates.parse(FALLBACK);
+    }
+
+    /**
+     * The carrier of one custom block state, or -1 when carriers are disabled or exhausted. States of a
+     * block with the same {@code appearance} ({@link CustomBlockComponents#appearanceKey}) share it.
+     */
+    public int carrier(String identifier, NbtMap definition, NbtMap states, String appearance) {
+        this.states++;
         if (this.useCarriers) {
             Pool pool = poolFor(identifier, definition, states);
+            String key = pool + "|" + identifier + "|" + appearance;
+            Integer shared = this.byAppearance.get(key);
+            if (shared != null) {
+                return shared;
+            }
             if (pool == Pool.OPAQUE && this.nextOpaque < opaqueCarriers.length) {
-                return opaqueCarriers[this.nextOpaque++];
+                int carrier = opaqueCarriers[this.nextOpaque++];
+                this.byAppearance.put(key, carrier);
+                return carrier;
             }
         }
-        return JavaBlockStates.parse(FALLBACK);
+        this.fallbacks++;
+        return -1;
+    }
+
+    /** Carrier states handed out (one per distinct appearance). */
+    public int carriersUsed() {
+        return this.nextOpaque;
+    }
+
+    /** States allocated so far. */
+    public int states() {
+        return this.states;
+    }
+
+    /** States that got no carrier (carriers disabled or exhausted). */
+    public int fallbacks() {
+        return this.fallbacks;
     }
 }

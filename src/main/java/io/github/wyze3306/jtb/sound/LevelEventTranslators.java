@@ -104,11 +104,10 @@ public final class LevelEventTranslators {
                 BlockBreaking breaking = session.get(BlockBreaking.KEY);
                 // The Java client draws the cracks of the block its player digs; the player module times
                 // the digs the Java client does not know about (item frames) with the server's speed.
-                if (breaking.isDigging(block.getX(), block.getY(), block.getZ())) {
-                    if (event != LevelEvent.BLOCK_STOP_BREAK) {
-                        breaking.onServerCrack(block.getX(), block.getY(), block.getZ(), data);
-                    }
-                } else {
+                if (breaking.isDigging(block.getX(), block.getY(), block.getZ()) && event != LevelEvent.BLOCK_STOP_BREAK) {
+                    breaking.onServerCrack(block.getX(), block.getY(), block.getZ(), data);
+                }
+                if (!breaking.drawsOwnCracks(block.getX(), block.getY(), block.getZ())) {
                     BlockCracking cracking = session.get(BlockCracking.KEY);
                     switch (event) {
                         case BLOCK_START_BREAK -> cracking.start(block, data);

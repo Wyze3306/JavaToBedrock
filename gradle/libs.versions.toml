@@ -2,15 +2,14 @@
 mcprotocollib = "26.3"
 # Same version as the one MCProtocolLib depends on
 minecraftauth = "5.0.0"
-# Moving snapshot, the one PowerNukkitX itself builds against (published from PowerNukkitX/Protocol,
-# lately its r/26_u6 branch, which already carries the next version's codec): the proxy uses the
-# v2192 codec (Bedrock 1.26.50) and tolerates what newer snapshots add (SoundMappingsTest flags new
-# sound events).
-bedrock-protocol = "3.0.0.Beta7-Debug-SNAPSHOT"
+# Moving snapshot, the one PowerNukkitX itself builds against (its beta branch, Bedrock 1.26.60,
+# protocol 2225). The repository keeps only its latest build.
+bedrock-protocol = "3.0.0.Beta8-SNAPSHOT"
 netty = "4.2.17.Final"
-# The RakNet transport the protocol snapshot requires (its 1.1.0.CR4 line since the 2026-11-07 build),
-# pinned to a timestamp the opencollab repository keeps
-raknet = "1.1.0.CR4-20261103.123906-3"
+# CloudburstMC network transports (NetherNet over WebRTC with libdatachannel), the versions
+# PowerNukkitX uses, pinned to timestamps the opencollab repository keeps
+cloudburst-netty = "2.0.0.CR6-20261026.130552-16"
+libdatachannel = "0.24.6.0-20261023.142230-9"
 fastutil = "8.5.19"
 adventure = "5.2.0"
 gson = "2.14.0"
@@ -23,7 +22,11 @@ mcprotocollib = { module = "org.geysermc.mcprotocollib:protocol", version.ref = 
 minecraftauth = { module = "net.raphimc:MinecraftAuth", version.ref = "minecraftauth" }
 bedrock-connection = { module = "org.powernukkitx.protocol:bedrock-connection", version.ref = "bedrock-protocol" }
 netty-all = { module = "io.netty:netty-all", version.ref = "netty" }
-netty-raknet = { module = "org.cloudburstmc.netty:netty-transport-raknet", version.ref = "raknet" }
+netty-nethernet = { module = "org.cloudburstmc.netty:netty-transport-nethernet", version.ref = "cloudburst-netty" }
+# Not a transport of the proxy: the protocol library reads RakChannelOption in shared code
+netty-raknet = { module = "org.cloudburstmc.netty:netty-transport-raknet", version.ref = "cloudburst-netty" }
+netty-signaling = { module = "org.cloudburstmc.netty:netty-external-signaling", version.ref = "cloudburst-netty" }
+libdatachannel = { module = "dev.opencollab:libdatachannel-java-arch-detect", version.ref = "libdatachannel" }
 fastutil = { module = "it.unimi.dsi:fastutil", version.ref = "fastutil" }
 adventure-legacy = { module = "net.kyori:adventure-text-serializer-legacy", version.ref = "adventure" }
 adventure-plain = { module = "net.kyori:adventure-text-serializer-plain", version.ref = "adventure" }

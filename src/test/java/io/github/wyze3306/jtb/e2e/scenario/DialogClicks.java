@@ -133,12 +133,15 @@ final class DialogClicks {
 
     /** The PowerNukkitX log of this e2e instance (empty when unknown). */
     static String pnxLog() {
+        // -Dpnx-log=<file> (tools/e2e/run.sh), or the instance directories of the older harness.
+        String file = System.getProperty("pnx-log");
         String instance = System.getProperty("jtb-instance");
-        if (instance == null) {
+        if (file == null && instance == null) {
             return "";
         }
         try {
-            return Files.readString(Path.of("/tmp/jtb/e2e-inst", instance, "pnx.log"), StandardCharsets.UTF_8);
+            Path path = file != null ? Path.of(file) : Path.of("/tmp/jtb/e2e-inst", instance, "pnx.log");
+            return Files.readString(path, StandardCharsets.UTF_8);
         } catch (IOException e) {
             return "";
         }

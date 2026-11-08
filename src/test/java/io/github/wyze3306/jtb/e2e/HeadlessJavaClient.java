@@ -16,6 +16,8 @@ import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.Serverbound
 import org.geysermc.mcprotocollib.protocol.packet.configuration.clientbound.ClientboundSelectKnownPacks;
 import org.geysermc.mcprotocollib.protocol.packet.configuration.serverbound.ServerboundSelectKnownPacks;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.ClientboundLoginPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundGameEventPacket;
+import org.geysermc.mcprotocollib.protocol.data.game.level.notify.GameEvent;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.ClientboundSystemChatPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.player.ClientboundPlayerPositionPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundChunkBatchFinishedPacket;
@@ -53,6 +55,8 @@ public final class HeadlessJavaClient {
 
     private final AtomicReference<String> disconnectReason = new AtomicReference<>();
     private final CountDownLatch joined = new CountDownLatch(1);
+    /** {@code LEVEL_CHUNKS_LOAD_START}: the vanilla client leaves its loading screen, the player has spawned. */
+    private final CountDownLatch spawned = new CountDownLatch(1);
     private volatile boolean packVerified;
     private ClientContext context;
     private E2eScenario scenario;
@@ -113,6 +117,12 @@ public final class HeadlessJavaClient {
             report();
             return 1;
         }
+        // Like the vanilla client, play once the loading screen is gone: the proxy sends the event when the
+        // Bedrock server spawns the player, which takes a few seconds (chunks around the spawn first).
+        long joinedAt = System.currentTimeMillis();
+        boolean spawnedInTime = this.spawned.await(60, TimeUnit.SECONDS);
+        log(spawnedInTime ? "Spawned after " + (System.currentTimeMillis() - joinedAt) + " ms"
+                : "No LEVEL_CHUNKS_LOAD_START within 60 s, playing anyway");
         log("Joined. Playing for " + seconds + "s");
         this.scenario.onJoined(this.context);
         long end = System.currentTimeMillis() + seconds * 1000L;
@@ -155,6 +165,8 @@ public final class HeadlessJavaClient {
             log("Teleport to " + teleport.getPosition() + " (id " + teleport.getId() + ")");
             this.context.positioned = true;
             this.joined.countDown();
+        } else if (packet instanceof ClientboundGameEventPacket event && event.getNotification() == GameEvent.LEVEL_CHUNKS_LOAD_START) {
+            this.spawned.countDown();
         } else if (packet instanceof ClientboundChunkBatchFinishedPacket) {
             // A vanilla client acknowledges every chunk batch with the rate it can take.
             session.send(new ServerboundChunkBatchReceivedPacket(DESIRED_CHUNKS_PER_TICK));

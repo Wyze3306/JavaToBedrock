@@ -23,6 +23,12 @@ import java.util.Map;
 public record CustomBlockCarrier(String bedrockIdentifier, NbtMap bedrockStates, NbtMap definition, String javaBlock,
                                  Map<String, String> javaProperties) {
 
+    /**
+     * {@code javaBlock} of a look shown by a display entity ({@code block.CustomBlockDisplay}) instead of
+     * a carrier state; {@code javaProperties} holds its {@code id}.
+     */
+    public static final String DISPLAY = "jtb:display";
+
     public CustomBlockCarrier {
         javaProperties = Map.copyOf(javaProperties);
     }

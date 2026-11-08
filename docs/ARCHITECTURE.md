@@ -1,11 +1,11 @@
 # JavaToBedrock — Architecture
 
 JavaToBedrock est un proxy qui permet à un client **Minecraft Java Edition 26.3** (protocole 777)
-de rejoindre un serveur **Minecraft Bedrock Edition** — en priorité **PowerNukkitX** (Bedrock 1.26.50,
-protocole 2193), mais aussi tout serveur Bedrock parlant le même protocole (BDS, autres logiciels).
+de rejoindre un serveur **Minecraft Bedrock Edition** **PowerNukkitX** (Bedrock 1.26.60, protocole 2225), qui
+parle NetherNet (WebRTC) depuis 1.26.60 ; le proxy ne parle que NetherNet.
 
 ```
- Client Java 26.3  ──TCP (protocole Java)──▶  JavaToBedrock  ──RakNet (protocole Bedrock)──▶  Serveur Bedrock (PNX)
+ Client Java 26.3  ──TCP (protocole Java)──▶  JavaToBedrock  ──NetherNet (protocole Bedrock)──▶  Serveur Bedrock (PNX)
                    ◀────────────────────────                  ◀─────────────────────────────
                          MCProtocolLib (serveur)                PowerNukkitX Protocol (client)
 ```
@@ -49,7 +49,7 @@ Racine : `io.github.wyze3306.jtb`
 | `(racine)` | `JavaToBedrock` : démarrage, cycle de vie, console |
 | `config` | `ProxyConfig` (fichier `config.yml`) |
 | `network.java` | Serveur Java (MCProtocolLib) : statut, connexion, phase de configuration |
-| `network.bedrock` | Client Bedrock : RakNet, ping/MOTD, paramètres réseau, login, chiffrement, packs |
+| `network.bedrock` | Client Bedrock : NetherNet (signalisation HTTP, canaux WebRTC, identité d'opérateur), sonde MOTD, paramètres réseau, login, chiffrement, packs |
 | `session` | `ProxySession`, `SessionManager`, cycle de vie d'une connexion |
 | `translator` | API des traducteurs + registre + liste des modules |
 | `mapping` | Tables statiques Bedrock ↔ Java chargées depuis `src/main/resources/mappings` |
@@ -153,7 +153,7 @@ Le `StartGame` du serveur suivant produit un nouveau login Java qui reconstruit 
 
 - **Transfert** (`TransferPacket`, `bedrock.follow-transfers`) : `switchServer(cible)`.
 - **Salle d'attente** (`BedrockReconnect`, `bedrock.reconnect`) : un arrêt propre (raison `SHUTDOWN`
-  ou message d'arrêt connu), une coupure RakNet ou un serveur injoignable laissent le joueur dans
+  ou message d'arrêt connu), une coupure NetherNet ou un serveur injoignable laissent le joueur dans
   l'écran de configuration avec un dialogue ; nouvelle tentative toutes les 5 s jusqu'au délai
   maximal, puis `onBedrockReady` efface le dialogue. Une expulsion ordinaire déconnecte.
 

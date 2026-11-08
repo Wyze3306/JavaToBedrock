@@ -5,8 +5,7 @@ import io.github.wyze3306.jtb.config.ProxyConfig;
 import io.netty.channel.EventLoop;
 import io.netty.util.concurrent.ScheduledFuture;
 import net.kyori.adventure.text.Component;
-import org.cloudburstmc.netty.channel.raknet.RakChannel;
-import org.cloudburstmc.netty.handler.codec.raknet.common.RakSessionCodec;
+import org.cloudburstmc.netty.channel.nethernet.NetherNetChannel;
 import org.cloudburstmc.protocol.bedrock.BedrockClientSession;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.geysermc.mcprotocollib.auth.GameProfile;
@@ -345,17 +344,16 @@ public final class ProxySession {
     }
 
     /**
-     * The RakNet round trip time to the Bedrock server in milliseconds, or -1 when not connected.
+     * The NetherNet (SCTP) round trip time to the Bedrock server in milliseconds, or -1 when not connected.
      */
     public long bedrockPingMillis() {
         BedrockClientSession session = this.bedrockSession;
         if (session == null || !session.isConnected()
-                || !(session.getPeer().getChannel() instanceof RakChannel rak)) {
+                || !(session.getPeer().getChannel() instanceof NetherNetChannel channel)) {
             return -1;
         }
-        RakSessionCodec codec = rak.rakPipeline().get(RakSessionCodec.class);
-        // The sliding window's smoothed RTT, steadier than the last ping/pong pair.
-        return codec == null ? -1 : Math.round(codec.getRTT());
+        long ping = channel.getPing();
+        return ping < 0 ? -1 : ping;
     }
 
     public boolean isBedrockConnected() {

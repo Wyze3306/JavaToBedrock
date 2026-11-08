@@ -91,6 +91,7 @@ final class ChunkManager implements ChunkWorker.Output {
     private final ChunkStats stats = new ChunkStats();
     private final ChunkWorker worker;
     private final ItemFrames frames;
+    private final BlockDisplays displays;
     private ChunkLayout layout;
     private BiomeTable biomes;
     private long nextToken = 1;
@@ -120,6 +121,7 @@ final class ChunkManager implements ChunkWorker.Output {
         this.worker = new ChunkWorker(session, session.proxy().workers(), this, this.fullBright, this.mapper.lightTable(), this.stats);
         this.worker.reset(layout, biomes.registrySize());
         this.frames = new ItemFrames(session);
+        this.displays = new BlockDisplays(session);
     }
 
     /** A new world (dimension change): every chunk is dropped; the client drops its own on respawn. */
@@ -134,6 +136,7 @@ final class ChunkManager implements ChunkWorker.Output {
         this.playerChunkX = Integer.MIN_VALUE;
         this.worker.reset(newLayout, newBiomes.registrySize());
         this.frames.forgetAll();
+        this.displays.forgetAll();
     }
 
     /** Custom biomes changed the table (normally before the first chunk; chunks already decoded keep theirs). */
@@ -241,9 +244,12 @@ final class ChunkManager implements ChunkWorker.Output {
         return biomes;
     }
 
-    /** Decoded column data, ready to be stored; {@code frames} holds position, frame value pairs. */
+    /**
+     * Decoded column data, ready to be stored; {@code frames} holds position, frame value pairs and
+     * {@code displays} position, display number pairs.
+     */
     private record Decoded(@Nullable ChunkSection[] sections, int[][] biomes, Int2ObjectOpenHashMap<NbtMap> blockEntities,
-                           IntOpenHashSet javaBlockEntities, IntArrayList frames) {
+                           IntOpenHashSet javaBlockEntities, IntArrayList frames, IntArrayList displays) {
     }
 
     /**
@@ -280,6 +286,8 @@ final class ChunkManager implements ChunkWorker.Output {
         IntOpenHashSet java = new IntOpenHashSet();
         IntArrayList frames = new IntArrayList(0);
         IntPredicate frame = runtimeId -> mapper.itemFrame(runtimeId) >= 0;
+        IntArrayList displays = new IntArrayList(0);
+        IntPredicate display = runtimeId -> mapper.blockDisplay(runtimeId) >= 0;
         for (int s = 0; s < sections.length; s++) {
             ChunkSection section = sections[s];
             if (section == null) {
@@ -301,8 +309,17 @@ final class ChunkManager implements ChunkWorker.Output {
                     }
                 }
             }
+            if (section.layer0().paletteContains(display)) {
+                for (int i = 0; i < BlockStorage.SIZE; i++) {
+                    int value = mapper.blockDisplay(section.layer0().get(i));
+                    if (value >= 0) {
+                        displays.add(packIndex(s, i));
+                        displays.add(value);
+                    }
+                }
+            }
         }
-        return new Decoded(sections, biomes, bedrock, java, frames);
+        return new Decoded(sections, biomes, bedrock, java, frames, displays);
     }
 
     /** {@code BlockEntityTranslator.packLocal} of the block at index {@code i} of Java section {@code s}. */
@@ -310,9 +327,14 @@ final class ChunkManager implements ChunkWorker.Output {
         return (i & 0xFF) | (((s << 4) | (i >> 8)) << 8);
     }
 
-    private static void putFrames(ChunkColumn column, IntArrayList frames) {
+    private static void putFrames(ChunkColumn column, Decoded decoded) {
+        IntArrayList frames = decoded.frames();
         for (int k = 0; k < frames.size(); k += 2) {
             column.frames.put(frames.getInt(k), frames.getInt(k + 1));
+        }
+        IntArrayList displays = decoded.displays();
+        for (int k = 0; k < displays.size(); k += 2) {
+            column.displays.put(displays.getInt(k), displays.getInt(k + 1));
         }
     }
 
@@ -325,7 +347,7 @@ final class ChunkManager implements ChunkWorker.Output {
         column.biomes = decoded.biomes();
         column.bedrockBlockEntities.putAll(decoded.blockEntities());
         column.javaBlockEntities.addAll(decoded.javaBlockEntities());
-        putFrames(column, decoded.frames());
+        putFrames(column, decoded);
         if (!column.requestedSections.isEmpty()) {
             column.stage = ChunkColumn.Stage.REQUESTING;
             column.requestedAt = System.nanoTime();
@@ -525,7 +547,7 @@ final class ChunkManager implements ChunkWorker.Output {
                         this.mapper, false);
                 column.bedrockBlockEntities.putAll(extra.blockEntities());
                 column.javaBlockEntities.addAll(extra.javaBlockEntities());
-                putFrames(column, extra.frames());
+                putFrames(column, extra);
             }
             if (column.requestedSections.isEmpty()) {
                 loaded(column);
@@ -947,6 +969,7 @@ final class ChunkManager implements ChunkWorker.Output {
      * placed there later does not show the old item.
      */
     private void frameChanged(ChunkColumn column, int x, int y, int z, int packed, int oldRuntimeId, int newRuntimeId) {
+        displayChanged(column, x, y, z, packed, oldRuntimeId, newRuntimeId);
         int before = this.mapper.itemFrame(oldRuntimeId);
         int after = this.mapper.itemFrame(newRuntimeId);
         if (before == after) {
@@ -1185,9 +1208,41 @@ final class ChunkManager implements ChunkWorker.Output {
         showFrames(column, true);
     }
 
-    /** Spawns (the column was sent) or removes (it was forgotten) the entities of a column's item frames. */
+    /** A block of a decoded column changed in layer 0: a displayed custom block appeared, went away or changed look. */
+    private void displayChanged(ChunkColumn column, int x, int y, int z, int packed, int oldRuntimeId, int newRuntimeId) {
+        int before = this.mapper.blockDisplay(oldRuntimeId);
+        int after = this.mapper.blockDisplay(newRuntimeId);
+        if (before == after) {
+            return;
+        }
+        if (after >= 0) {
+            column.displays.put(packed, after);
+        } else {
+            column.displays.remove(packed);
+        }
+        if (column.stage == ChunkColumn.Stage.SENT) {
+            if (after >= 0) {
+                this.displays.spawn(x, y, z, after);
+            } else {
+                this.displays.remove(x, y, z);
+            }
+        }
+    }
+
+    /** Spawns (the column was sent) or removes (it was forgotten) the entities of a column's item frames and displayed blocks. */
     private void showFrames(ChunkColumn column, boolean show) {
         int minY = this.layout.javaMinY();
+        for (Int2IntMap.Entry display : column.displays.int2IntEntrySet()) {
+            int packed = display.getIntKey();
+            int x = (column.x << 4) | (packed & 15);
+            int y = (packed >> 8) + minY;
+            int z = (column.z << 4) | ((packed >> 4) & 15);
+            if (show) {
+                this.displays.spawn(x, y, z, display.getIntValue());
+            } else {
+                this.displays.remove(x, y, z);
+            }
+        }
         for (Int2IntMap.Entry frame : column.frames.int2IntEntrySet()) {
             int packed = frame.getIntKey();
             int x = (column.x << 4) | (packed & 15);
@@ -1233,6 +1288,7 @@ final class ChunkManager implements ChunkWorker.Output {
     void close() {
         this.closed = true;
         this.frames.forgetAll();
+        this.displays.forgetAll();
         this.worker.close();
         this.columns.clear();
         this.waiting.clear();

@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class BedrockServersTest {
 
     private static ProxyConfig.Bedrock config(Map<String, String> servers, Map<String, String> forcedHosts) {
-        return new ProxyConfig.Bedrock("127.0.0.1", 19132, ProxyConfig.AuthMode.OFFLINE, "key.pem", "", 10, "fr_FR", true,
+        return new ProxyConfig.Bedrock("127.0.0.1", 19132, ProxyConfig.AuthMode.OFFLINE, "key.pem", "identity.pem", "", 10, "fr_FR", true,
                 new ProxyConfig.Reconnect(300, List.of()), servers, forcedHosts);
     }
 

@@ -1,5 +1,6 @@
 package io.github.wyze3306.jtb.resourcepack;
 
+import io.github.wyze3306.jtb.inventory.InventoryState;
 import io.github.wyze3306.jtb.item.ItemRegistry;
 import io.github.wyze3306.jtb.network.java.JavaConfiguration;
 import io.github.wyze3306.jtb.session.ProxySession;
@@ -124,6 +125,8 @@ public final class ResourcePackState implements SessionState {
             case SUCCESSFULLY_LOADED -> {
                 this.loaded = true;
                 registerSounds();
+                // Stacks translated before the pack was loaded lack their models: translate them again.
+                this.session.get(InventoryState.KEY).retranslate();
                 this.session.logger().info("[{}] The Java client loaded the converted resource pack", this.session.getName());
             }
             case DECLINED, FAILED_DOWNLOAD, INVALID_URL, FAILED_RELOAD, DISCARDED -> this.loaded = false;

@@ -72,6 +72,7 @@ public final class ConversionArtifacts {
     private final NavigableSet<Integer> glyphPages = new TreeSet<>();
     private final Map<String, EntityModel> entityModels = new TreeMap<>();
     private final NavigableSet<String> customBlocks = new TreeSet<>();
+    private final NavigableSet<Integer> blockDisplays = new TreeSet<>();
     /**
      * True when the pack has the screen overlay font used for camera fades: font
      * {@code jtb:overlay} whose character U+E000 is an opaque white square tall enough to cover the
@@ -94,6 +95,7 @@ public final class ConversionArtifacts {
         copy.glyphPages.addAll(this.glyphPages);
         copy.entityModels.putAll(this.entityModels);
         copy.customBlocks.addAll(this.customBlocks);
+        copy.blockDisplays.addAll(this.blockDisplays);
         copy.fadeOverlay = this.fadeOverlay;
         return copy;
     }
@@ -195,6 +197,15 @@ public final class ConversionArtifacts {
         this.entityModels.put(identifier, model);
     }
 
+    /** Whether the pack has the item model of display {@code id} ({@code JavaAssetNames.blockDisplayModel}). */
+    public boolean hasBlockDisplay(int id) {
+        return this.blockDisplays.contains(id);
+    }
+
+    public void addBlockDisplay(int id) {
+        this.blockDisplays.add(id);
+    }
+
     public void addCustomBlock(String identifier) {
         this.customBlocks.add(identifier);
     }
@@ -242,6 +253,9 @@ public final class ConversionArtifacts {
         JsonArray blocks = new JsonArray();
         this.customBlocks.forEach(blocks::add);
         json.add("custom_blocks", blocks);
+        JsonArray displays = new JsonArray();
+        this.blockDisplays.forEach(displays::add);
+        json.add("block_displays", displays);
         json.addProperty("fade_overlay", this.fadeOverlay);
         return json;
     }
@@ -286,6 +300,9 @@ public final class ConversionArtifacts {
                 }
                 artifacts.entityModels.put(entity.getKey(), new EntityModel(model.get("default").getAsString(), parsed));
             }
+        }
+        if (json.get("block_displays") instanceof JsonArray displays) {
+            displays.forEach(display -> artifacts.blockDisplays.add(display.getAsInt()));
         }
         if (json.get("custom_blocks") instanceof JsonArray blocks) {
             blocks.forEach(block -> artifacts.customBlocks.add(block.getAsString()));

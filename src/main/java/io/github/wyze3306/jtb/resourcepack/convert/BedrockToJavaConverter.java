@@ -34,7 +34,7 @@ public final class BedrockToJavaConverter {
     private static final Logger LOGGER = LoggerFactory.getLogger(BedrockToJavaConverter.class);
 
     /** Bumped whenever the conversion output changes, to invalidate cached packs. */
-    public static final int VERSION = 3;
+    public static final int VERSION = 4;
     /** Java 26.3 resource pack format. */
     public static final int PACK_FORMAT = PackMetaConverter.PACK_FORMAT;
     /** Where the artifacts are stored inside the zip (outside {@code assets/}: ignored by the client). */

@@ -48,6 +48,8 @@ final class ChunkColumn {
     final IntOpenHashSet javaBlockEntities = new IntOpenHashSet();
     /** Item frame blocks: position -> {@code BlockMapper#itemFrame} value (shown as entities once the column is sent). */
     final Int2IntOpenHashMap frames = new Int2IntOpenHashMap(0);
+    /** Custom blocks shown by display entities: position -> {@code BlockMapper#blockDisplay} value. */
+    final Int2IntOpenHashMap displays = new Int2IntOpenHashMap(0);
     /** Block changes received while decoding: x, y, z, layer, runtime id. */
     final List<int[]> pendingBlocks = new ArrayList<>(0);
     /** Block entities received while decoding. */

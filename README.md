@@ -1,17 +1,24 @@
 # JavaToBedrock
 
-**Jouez sur un serveur Minecraft Bedrock (PowerNukkitX, BDS…) avec Minecraft Java Edition.**
+**Jouez sur un serveur Minecraft Bedrock PowerNukkitX avec Minecraft Java Edition.**
 
 JavaToBedrock est un proxy autonome : les joueurs **Java Edition 26.3** se connectent au proxy comme
-à n'importe quel serveur Java, et le proxy les fait jouer sur un serveur **Bedrock 1.26.50** en
+à n'importe quel serveur Java, et le proxy les fait jouer sur un serveur **Bedrock 1.26.60** en
 traduisant chaque paquet dans les deux sens — monde, blocs, entités, inventaires, formulaires,
 commandes, scoreboard, sons, packs de ressources… C'est le chemin inverse de Geyser.
 
 ```
-Client Java 26.3 ──TCP──▶ JavaToBedrock ──RakNet──▶ Serveur Bedrock (PowerNukkitX 1.26.50)
+Client Java 26.3 ──TCP──▶ JavaToBedrock ──NetherNet (WebRTC)──▶ Serveur Bedrock (PowerNukkitX 1.26.60)
 ```
 
-> Statut : en développement actif. Voir [État des fonctionnalités](#état-des-fonctionnalités).
+Le proxy parle **uniquement NetherNet**, le transport de PowerNukkitX depuis 1.26.60 : signalisation
+HTTP sur le port du serveur (TCP), puis canaux de données WebRTC (bibliothèque native libdatachannel,
+incluse pour Linux glibc et musl, Windows et macOS, en x64 et arm64). Les serveurs RakNet (BDS, PowerNukkitX 1.26.50 et
+avant) ne sont plus pris en charge.
+
+> Statut : complet pour un serveur PowerNukkitX avec ses plugins et ses packs (vérifié de bout en
+> bout sur Linesia, voir [État des fonctionnalités](#état-des-fonctionnalités) et les
+> [limites](#limites)).
 
 ## Démarrage rapide
 
@@ -24,8 +31,8 @@ Client Java 26.3 ──TCP──▶ JavaToBedrock ──RakNet──▶ Serveur 
    ```bash
    java -jar JavaToBedrock.jar
    ```
-4. Dans `config.yml`, indiquer l'adresse du serveur Bedrock (`bedrock.address` / `bedrock.port`)
-   et choisir le mode d'authentification (`bedrock.auth`, voir ci-dessous). Redémarrer.
+4. Dans `config.yml`, indiquer l'adresse du serveur Bedrock (`bedrock.address` / `bedrock.port` : le
+   port du serveur, joignable en TCP pour la signalisation NetherNet) et choisir le mode d'authentification (`bedrock.auth`, voir ci-dessous). Redémarrer.
 5. Dans Minecraft Java 26.3 : *Multijoueur → Ajouter un serveur →* l'adresse du proxy
    (port `25565` par défaut).
 
@@ -66,6 +73,10 @@ remplace `config.yml`. Sous Kubernetes, évitez un service nommé `jtb-…` (ses
 Le proxy signe l'identité Java de chaque joueur (vérifiée par Mojang, `java.online-mode: true`)
 avec sa propre clé ; PowerNukkitX vérifie la signature et la liaison à la clé de session
 (anti-rejeu), puis accepte le joueur même avec `xbox-auth` activé.
+
+> Le support *java-bridge* vit dans le fork PowerNukkitX de JavaToBedrock (branche
+> `jtb-java-bridge`, 1.26.50) : il reste à le porter sur PowerNukkitX 1.26.60. D'ici là, utilisez
+> `offline` (serveur sans xbox-auth) ou `microsoft`.
 
 1. Mettre `bedrock.auth: trusted` dans `config.yml` du proxy et démarrer : la console affiche la
    **clé publique** du proxy (fichier `jtb-proxy-key.pem`, à garder secret).
@@ -141,21 +152,43 @@ Si les joueurs se connectent depuis Internet, ouvrez le port HTTP (`8765` par d�
 
 ## État des fonctionnalités
 
-Ce tableau est tenu à jour à chaque version (✅ fait · 🟡 partiel · ❌ pas encore).
+Ce tableau est tenu à jour à chaque version (✅ fait et couvert par les tests de bout en bout ·
+🟡 partiel · ❌ pas encore). Chaque ligne ✅ passe contre le PowerNukkitX 1.26.60 de Linesia
+(`tools/e2e/run.sh`, 14 scénarios), et un passage sur une copie complète de Linesia (core, 18 packs
+chiffrés par RPEncrypter) a vérifié les packs, objets, blocs, PNJ et menus.
 
 | Domaine | État |
 |---|---|
-| Connexion, liste des serveurs (MOTD, joueurs), modes offline / microsoft / trusted | ✅ |
-| Monde : chunks, blocs, biomes, éclairage, mises à jour de blocs, block entities | en cours |
-| Joueur : mouvements serveur-autoritaires, capacités, santé/faim/XP, effets, mort | en cours |
-| Interactions : casser, poser, utiliser, attaquer | en cours |
-| Entités : apparition, métadonnées, mouvements, équipement, montures, liste des joueurs | en cours |
-| Inventaires et conteneurs (requêtes serveur-autoritaires), artisanat, créatif, échanges | en cours |
-| Chat, commandes avec auto-complétion | en cours |
-| Formulaires → dialogues Java natifs | en cours |
-| Scoreboard, boss bars, titres, toasts | en cours |
-| Sons, particules | en cours |
-| Conversion des packs (textures, objets/blocs/entités custom, polices, sons, langues) | en cours |
+| Connexion NetherNet, liste des serveurs (MOTD, joueurs), salle d'attente, mode offline | ✅ |
+| Mode microsoft | 🟡 implémenté, pas couvert par les tests automatiques |
+| Mode trusted | 🟡 demande un PowerNukkitX avec *java-bridge* (voir plus bas) |
+| Monde : chunks, blocs, biomes, éclairage, mises à jour de blocs, block entities, cadres | ✅ |
+| Joueur : mouvements serveur-autoritaires, capacités, santé/faim/XP, effets, mort, dimensions | ✅ |
+| Interactions : casser, poser, utiliser, attaquer | ✅ |
+| Entités : apparition, métadonnées, mouvements, équipement, montures, liste des joueurs, PNJ | ✅ |
+| Inventaires et conteneurs (requêtes serveur-autoritaires), artisanat, créatif, menus spéciaux | ✅ |
+| Chat, commandes avec auto-complétion | ✅ |
+| Formulaires (simples, modaux, personnalisés, PNJ, écrans data-driven) → dialogues Java | ✅ |
+| Scoreboard, boss bars, titres, toasts, caméra | ✅ |
+| Sons, particules | ✅ |
+| Packs : textures, objets/blocs/entités custom, armures, polices, sons, langues, packs chiffrés | ✅ |
+
+## Limites
+
+Ce que Java ne permet pas de reproduire, et ce que le proxy fait à la place :
+
+- **Interfaces JSON des packs (HUD, écrans)** : Java n'a pas d'équivalent. Les formulaires deviennent
+  des dialogues Java, les inventaires des écrans Java, mais un HUD dessiné par un pack d'interface
+  (par exemple les données qu'un plugin encode dans le texte d'une boss bar pour son pack) s'affiche
+  tel quel.
+- **Blocs custom** : Java n'offre qu'environ 1 500 états « porteurs » (bloc musical, blocs de
+  champignon) qu'un pack peut redessiner. Ils vont d'abord aux blocs ayant le moins d'apparences ;
+  les états qui partagent une apparence partagent un porteur. Au-delà, le bloc est un `barrier`
+  invisible (ou `structure_void` sans collision) et une entité `item_display` dessine son modèle :
+  Linesia (2 447 blocs, 32 502 états, 23 640 apparences) s'affiche ainsi en entier. Ces blocs-là
+  n'émettent pas de lumière côté Java et le proxy termine leur casse au temps annoncé par le serveur.
+- **Entités custom** : dessinées par une entité `item_display` portant le modèle converti (os figés,
+  sans animation).
 
 ## Développement
 

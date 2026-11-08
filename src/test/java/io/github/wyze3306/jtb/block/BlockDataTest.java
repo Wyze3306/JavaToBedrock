@@ -65,7 +65,8 @@ class BlockDataTest {
 
     @Test
     void bedrockHashesAndMapping() {
-        assertEquals(22091, BedrockBlockPalette.size());
+        // Bedrock 1.26.60 palette (chorus plants, fire and redstone wire carry their connections).
+        assertEquals(23930, BedrockBlockPalette.size());
         NbtMap states = NbtMap.builder().putString("minecraft:vertical_half", "top").build();
         int index = BedrockBlockPalette.indexOfHash(BlockStateHasher.hash("minecraft:smooth_stone_slab", states));
         assertTrue(index >= 0, "smooth_stone_slab is vanilla");
@@ -79,6 +80,17 @@ class BlockDataTest {
         assertEquals("minecraft:stone", BedrockBlockPalette.name(stone));
         assertNull(BedrockBlockPalette.stateValue(stone, "nothing"));
         assertNotEquals(-1, BedrockBlockPalette.indexOfJava(JavaBlockStates.parse("oak_stairs[facing=west,half=top]")));
+    }
+
+    @Test
+    void connectionsOfTheNewPaletteMapExactly() {
+        NbtMap wire = NbtMap.builder().putInt("redstone_signal", 0).putString("redstone_east", "side")
+                .putString("redstone_north", "up").putString("redstone_south", "none").putString("redstone_west", "side").build();
+        int index = BedrockBlockPalette.indexOfHash(BlockStateHasher.hash("minecraft:redstone_wire", wire));
+        assertTrue(index >= 0, "redstone wire with connections is in the palette");
+        int java = BedrockBlockPalette.javaState(index);
+        assertEquals(JavaBlockStates.parse("redstone_wire[east=side,north=up,power=0,south=none,west=side]"), java);
+        assertEquals(index, BedrockBlockPalette.indexOfJava(java), "Java -> Bedrock keeps the connections");
     }
 
     @Test

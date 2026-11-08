@@ -4,19 +4,12 @@ import io.github.wyze3306.jtb.JavaToBedrock;
 import io.github.wyze3306.jtb.config.ProxyConfig;
 import io.github.wyze3306.jtb.network.java.JavaServer;
 import io.github.wyze3306.jtb.text.BedrockText;
-import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.socket.nio.NioDatagramChannel;
-import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.ScheduledFuture;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.cloudburstmc.netty.channel.raknet.RakChannelFactory;
-import org.cloudburstmc.netty.channel.raknet.RakPing;
-import org.cloudburstmc.netty.channel.raknet.RakPong;
-import org.cloudburstmc.protocol.bedrock.BedrockPong;
+import org.cloudburstmc.netty.channel.nethernet.signaling.HttpSignalingSettings;
+import org.cloudburstmc.netty.channel.nethernet.signaling.NetherNetHTTPClientSignaling;
+import org.cloudburstmc.netty.channel.nethernet.signaling.PongData;
 import org.geysermc.mcprotocollib.protocol.data.status.PlayerInfo;
 import org.geysermc.mcprotocollib.protocol.data.status.ServerStatusInfo;
 import org.geysermc.mcprotocollib.protocol.data.status.VersionInfo;
@@ -36,7 +29,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Pings every Bedrock server behind the proxy every few seconds (RakNet unconnected ping) and keeps
+ * Pings every Bedrock server behind the proxy every few seconds (NetherNet HTTP signalling probe, which
+ * answers with the server's pong data) and keeps
  * the latest answers, so the Java server list mirrors the MOTD, player count and version of the
  * server the player would join, without connecting.
  */
@@ -58,10 +52,10 @@ public final class BedrockPinger implements AutoCloseable {
 
     private final JavaToBedrock proxy;
     private final Map<InetSocketAddress, Status> statuses = new ConcurrentHashMap<>();
-    /** Addresses pinged last, the only ones whose pongs are kept (channel event loop). */
-    private Set<InetSocketAddress> expected = Set.of();
+    /** Addresses pinged last, the only ones whose pongs are kept. */
+    private volatile Set<InetSocketAddress> expected = Set.of();
     private long pings;
-    private @Nullable Channel channel;
+    private volatile boolean closed;
     private @Nullable ScheduledFuture<?> task;
     private byte @Nullable [] icon;
 
@@ -78,32 +72,12 @@ public final class BedrockPinger implements AutoCloseable {
                 LOGGER.warn("Could not read {}", iconFile, e);
             }
         }
-        Bootstrap bootstrap = new Bootstrap()
-                .group(this.proxy.bedrockConnector().group())
-                .channelFactory(RakChannelFactory.client(NioDatagramChannel.class))
-                .handler(new ChannelInboundHandlerAdapter() {
-                    @Override
-                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
-                        try {
-                            if (msg instanceof RakPong pong) {
-                                onPong(pong.getSender(), BedrockPong.fromRakNet(pong.getPongData()));
-                            }
-                        } catch (Exception e) {
-                            LOGGER.debug("Invalid Bedrock pong", e);
-                        } finally {
-                            ReferenceCountUtil.release(msg);
-                        }
-                    }
-                });
-        this.channel = bootstrap.bind(0).sync().channel();
-        this.task = this.channel.eventLoop().scheduleAtFixedRate(this::ping, 0, INTERVAL_SECONDS, TimeUnit.SECONDS);
+        this.task = this.proxy.bedrockConnector().group().next()
+                .scheduleAtFixedRate(this::ping, 0, INTERVAL_SECONDS, TimeUnit.SECONDS);
     }
 
     private void ping() {
-        Channel channel = this.channel;
-        // isOpen, not isActive: a RakNet client channel only becomes active once connected, and this
-        // one only sends unconnected pings.
-        if (channel == null || !channel.isOpen()) {
+        if (this.closed) {
             return;
         }
         BedrockServers servers = this.proxy.bedrockConnector().servers();
@@ -115,20 +89,27 @@ public final class BedrockPinger implements AutoCloseable {
             InetSocketAddress address = servers.address(target);
             if (!address.isUnresolved()) {
                 expected.add(address);
-                channel.writeAndFlush(new RakPing(System.currentTimeMillis(), address));
+                // The probe runs on the JDK HTTP client's threads; the answer is a plain record.
+                NetherNetHTTPClientSignaling.probe(address, HttpSignalingSettings.DEFAULT).whenComplete((probe, error) -> {
+                    if (error != null) {
+                        LOGGER.debug("Bedrock server {} did not answer the probe: {}", address, error.toString());
+                    } else if (probe != null && probe.motd() != null) {
+                        onPong(address, probe.motd());
+                    }
+                });
             }
         }
         this.expected = expected;
         this.statuses.keySet().retainAll(expected);
     }
 
-    private void onPong(InetSocketAddress server, BedrockPong pong) {
+    private void onPong(InetSocketAddress server, PongData pong) {
         if (!this.expected.contains(server)) {
             // Only the servers we ping may fill the table (and the log).
             return;
         }
-        Status status = new Status(nullToEmpty(pong.motd()), nullToEmpty(pong.subMotd()), pong.protocolVersion(),
-                nullToEmpty(pong.version()), Math.max(0, pong.playerCount()), Math.max(0, pong.maximumPlayerCount()),
+        Status status = new Status(nullToEmpty(pong.serverName()), nullToEmpty(pong.levelName()), pong.protocol(),
+                nullToEmpty(pong.version()), Math.max(0, pong.playerCount()), Math.max(0, pong.maxPlayerCount()),
                 System.currentTimeMillis());
         Status previous = this.statuses.put(server, status);
         if (previous == null || status.receivedAt() - previous.receivedAt() > STALE_MILLIS) {
@@ -195,8 +176,6 @@ public final class BedrockPinger implements AutoCloseable {
         if (this.task != null) {
             this.task.cancel(false);
         }
-        if (this.channel != null) {
-            this.channel.close();
-        }
+        this.closed = true;
     }
 }

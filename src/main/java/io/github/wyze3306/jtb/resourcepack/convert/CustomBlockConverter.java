@@ -1,5 +1,7 @@
 package io.github.wyze3306.jtb.resourcepack.convert;
 
+import io.github.wyze3306.jtb.block.CustomBlockComponents;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -64,6 +66,10 @@ final class CustomBlockConverter {
         Map<String, Map<String, Appearance>> byBlock = new TreeMap<>();
         Map<String, Map<String, Integer>> models = new HashMap<>();
         for (CustomBlockCarrier carrier : carriers) {
+            if (CustomBlockCarrier.DISPLAY.equals(carrier.javaBlock())) {
+                display(context, carrier, models.computeIfAbsent(carrier.bedrockIdentifier(), k -> new HashMap<>()));
+                continue;
+            }
             ResourceTables.Carrier table = context.tables().carrier(carrier.javaBlock());
             if (table == null) {
                 context.count("custom block states on unsupported carriers");
@@ -97,6 +103,37 @@ final class CustomBlockConverter {
         }
     }
 
+    /**
+     * A look shown by a display entity: its block model, and the item definition
+     * {@code JavaAssetNames.blockDisplayModel(id)} the entity's item points at (the entity applies the
+     * rotation).
+     */
+    private static void display(ConversionContext context, CustomBlockCarrier carrier, Map<String, Integer> models) {
+        int id;
+        try {
+            id = Integer.parseInt(carrier.javaProperties().getOrDefault("id", ""));
+        } catch (NumberFormatException e) {
+            return;
+        }
+        Appearance appearance;
+        try {
+            appearance = appearance(context, carrier, models);
+        } catch (RuntimeException e) {
+            LOGGER.debug("Custom block {} not converted", carrier.bedrockIdentifier(), e);
+            appearance = null;
+        }
+        if (appearance == null) {
+            context.count("custom block states without model");
+            return;
+        }
+        String model = JavaAssetNames.blockDisplayModel(id);
+        context.writer().putJson("assets/" + JavaAssetNames.NAMESPACE + "/items/" + model.substring(model.indexOf(':') + 1) + ".json",
+                ItemModels.plain(appearance.model()));
+        context.artifacts().addBlockDisplay(id);
+        context.artifacts().addCustomBlock(carrier.bedrockIdentifier());
+        context.count("custom block looks shown by display entities");
+    }
+
     // ------------------------------------------------------------------ models
 
     private static @Nullable Appearance appearance(ConversionContext context, CustomBlockCarrier carrier,
@@ -123,13 +160,7 @@ final class CustomBlockConverter {
 
     /** The block's components with the matching permutations applied in order. */
     static NbtMap components(NbtMap definition, NbtMap states) {
-        Map<String, Object> components = new LinkedHashMap<>(definition.getCompound("components"));
-        for (NbtMap permutation : definition.getList("permutations", NbtType.COMPOUND)) {
-            if (MolangConditions.test(permutation.getString("condition", ""), states)) {
-                components.putAll(permutation.getCompound("components"));
-            }
-        }
-        return NbtMap.fromMap(components);
+        return CustomBlockComponents.components(definition, states);
     }
 
     private static @Nullable JsonObject model(ConversionContext context, NbtMap components) {

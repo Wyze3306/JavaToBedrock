@@ -1,10 +1,14 @@
 # Un serveur PowerNukkitX et le proxy JavaToBedrock devant lui :
 #   docker compose -f docker/docker-compose.yml up -d
-# Les joueurs Bedrock se connectent sur le port 19132/udp, les joueurs Java sur 25565.
+# Les joueurs Bedrock se connectent sur le port 19132, les joueurs Java sur 25565.
+# PowerNukkitX 1.26.60 parle NetherNet : signalisation en TCP sur son port, médias WebRTC en UDP
+# (network-settings.nethernet.udpPort de pnx.yml pour un port fixe à ouvrir aux joueurs Bedrock).
+# Le proxy, client NetherNet sur le même réseau Docker, n'a besoin d'aucun port publié.
 services:
   pnx:
     image: ghcr.io/powernukkitx/server:latest
     ports:
+      - "19132:19132/tcp"
       - "19132:19132/udp"
     volumes:
       - ./pnx:/data

@@ -1,5 +1,7 @@
 package io.github.wyze3306.jtb.resourcepack.convert;
 
+import io.github.wyze3306.jtb.block.MolangConditions;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import io.github.wyze3306.jtb.resourcepack.BedrockPack;

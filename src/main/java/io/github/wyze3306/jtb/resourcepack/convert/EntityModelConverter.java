@@ -1,5 +1,7 @@
 package io.github.wyze3306.jtb.resourcepack.convert;
 
+import io.github.wyze3306.jtb.entity.EntityDefinitions;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -36,7 +38,7 @@ final class EntityModelConverter {
     static void convert(ConversionContext context) {
         for (Map.Entry<String, JsonObject> entity : context.definitions().clientEntities().entrySet()) {
             String identifier = entity.getKey();
-            if (identifier.toLowerCase(Locale.ROOT).startsWith("minecraft:")) {
+            if (isVanilla(identifier)) {
                 continue;
             }
             ConversionArtifacts.EntityModel model = convert(context, identifier, entity.getValue());
@@ -45,6 +47,17 @@ final class EntityModelConverter {
                 context.count("entity models");
             }
         }
+    }
+
+    /**
+     * Vanilla entities keep their Java look (a pack re-skinning {@code minecraft:zombie} changes
+     * nothing on Java). Servers also declare their own entities in the {@code minecraft} namespace
+     * ({@code minecraft:npc_sylven}): those are custom and get a model.
+     */
+    static boolean isVanilla(String identifier) {
+        String id = identifier.toLowerCase(Locale.ROOT);
+        return id.startsWith("minecraft:")
+                && (EntityDefinitions.forBedrock(id) != null || EntityDefinitions.isUnmappedVanilla(id));
     }
 
     private static ConversionArtifacts.@Nullable EntityModel convert(ConversionContext context, String identifier,

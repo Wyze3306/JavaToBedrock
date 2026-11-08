@@ -10,16 +10,22 @@ which packet.
 java -jar build/libs/JavaToBedrock.jar        # writes config.yml on first start
 ```
 
-Java 21. Dependencies: MCProtocolLib 26.3 (Java side), PowerNukkitX Protocol
-`3.0.0.Beta7-Debug-SNAPSHOT` + the CloudburstMC RakNet transport it requires (Bedrock side). The protocol
-is a moving snapshot and its repository keeps only the latest build: an upstream API change can break
-the build without any change here (the 2026-11-07 build moved camera instructions to
-`data.camera.instruction` and the RakNet transport to its `1.1.0.CR4` line). The wire format the proxy
-speaks is the codec it picks (`network.bedrock.BedrockCodecs`), not the library version.
+Java 21. Dependencies: MCProtocolLib 26.3 (Java side), PowerNukkitX Protocol `3.0.0.Beta8-SNAPSHOT` and the
+CloudburstMC NetherNet transport with libdatachannel (Bedrock side), the versions PowerNukkitX 1.26.60 uses.
+The protocol is a moving snapshot and its repository keeps only the latest build: an upstream API change can
+break the build without any change here. The wire format is the codec the proxy picks
+(`network.bedrock.BedrockCodecs`: 1.26.60, protocol 2225, only).
 
-PowerNukkitX itself moved on: its `beta` branch (Bedrock 1.26.60, protocol 2225) only listens on
-NetherNet (WebRTC), no longer on RakNet, so the proxy reaches the 1.26.50 RakNet servers (the
-JavaToBedrock fork of PowerNukkitX, BDS, other software) and RakNet servers on 1.26.60.
+**Transport: NetherNet only.** `network.bedrock.BedrockConnector` opens a `NetherNetClientChannel`
+(`NetherNetHTTPClientSignaling`: the SDP offer goes to the server's port over HTTP/TCP, then WebRTC data
+channels) and `NetherNetClientInitializer` builds the Bedrock pipeline on it (one batch per data channel
+message, no RakNet frame id; the protocol library is told the RakNet version it would read from RakNet
+channel options). Every offer carries an identity assertion signed with the proxy's operator key
+(`bedrock.nethernet-identity-file`, P-384, created on first start) derived per player
+(`OperatorIdentity.forPlayer`): PowerNukkitX refuses unsigned offers (HTTP 401). The server's assertion is
+not checked (its PEM-based token has no expiry, which `TokenTrust.ANY` requires). `BedrockPinger` probes
+`GET` on the signalling endpoint (pong data: MOTD, protocol, players). The RakNet transport stays on the
+class path only because the protocol library reads `RakChannelOption` in shared code.
 
 ## End-to-end test
 
@@ -42,8 +48,12 @@ tools/e2e/run.sh path/to/powernukkitx.jar world 40
 Scenarios (`foo_bar` = `FooBarScenario`): `default`, `world`, `world_travel`, `player`, `entity`,
 `chat`, `form`, `ui`, `sound`, `resource_pack`, `inventory`, `item_frame`... Some need server-side helpers: `form`/`ui`
 use the test plugin in `src/test/pnx-plugin`, `resource_pack` packs in the server's `resource_packs/`,
-`PNX_JAVA=/path/to/java` runs the server with another Java than the proxy (recent PowerNukkitX builds need
-Java 25). `reconnect` a server restart during the run, `server_switch` a second server
+`PNX_JAVA=/path/to/java` runs the server with another Java than the proxy (upstream PowerNukkitX `beta` needs
+Java 25; the Linesia fork runs on 21). `run.sh` prepares the server-side helpers itself (`form`/`ui`: the
+test plugin; `resource_pack`/`inventory_custom_items`: the test packs and the `JtbE2eItems` plugin) and
+starts every run with fresh player data. `server_tour` visits a real server with its own plugins and packs
+(`-Dcommands="give @s ns:item;npc x"`, `-Dclick=true`, `-Dinteract=true`, `-Dexpect.items=N`...).
+`reconnect` a server restart during the run, `server_switch` a second server
 (`JTB_BEDROCK_SERVERS=bis=host:port`), `peers` a second client named `Load1`.
 
 ## Rules
@@ -76,12 +86,12 @@ Java 25). `reconnect` a server restart during the run, `server_switch` a second 
 
 | Class | Owner | Used by |
 |---|---|---|
-| `block.BlockMapper` | block | world, player, entity, inventory |
+| `block.BlockMapper` (`blockDisplay`, `blockDisplays`: custom blocks drawn by entities) | block | world, player, entity, inventory |
 | `world.WorldState`, `world.ItemFrame` (`itemFrame(javaEntityId)`: item frame entities) | world | player, sound |
 | `player.PlayerState` | player | entity (local player hooks), world, inventory |
 | `player.BlockBreaking` (`isDigging`, `onServerCrack`) | player | sound |
 | `entity.EntityTracker` | entity | player, ui, sound, world (item frames: `allocateJavaId`, and the `EntityDefinitions` data layouts) |
-| `inventory.InventoryState` | inventory | player |
+| `inventory.InventoryState` (`retranslate` once the pack is loaded) | inventory | player, resourcepack |
 | `item.ItemTranslator`, `item.ItemRegistry` | inventory | entity (equipment, item entities), ui, world (item frames) |
 | `text.TextTranslator`, `text.BedrockLang` | chat | all |
 | `network.java.JavaConfiguration` | core | world (registries, ready), resourcepack |
@@ -119,6 +129,45 @@ entity (`Item`, `ItemRotation`); Java item frames are entities. The block shows 
 - **Limitations.** A frame placed with `/setblock` has no block entity on PowerNukkitX and takes no item;
   in creative with a sword the server ignores `START_DESTROY_BLOCK`, so the item stays; Java's separate glow frame
   sounds are not used (Bedrock has one set). End-to-end coverage: scenario `item_frame` (operator needed).
+
+## Custom blocks without carrier (block, world, resourcepack, player)
+
+Java has about 1 516 safe carrier states (opaque full cubes: `note_block`, the mushroom blocks). Servers like
+Linesia define far more looks (2 447 blocks, 32 502 states, 23 640 looks), so:
+
+- **Allocation (block).** `CustomBlockComponents.appearanceKey` is what a state looks like (geometry, material
+  instances, transformation, unit cube, light, after the matching permutations). States of one block with the
+  same key share a carrier. `BlockMapper` hands carriers to the blocks with the fewest looks first (decoration),
+  then in definition order; deterministic, so cached packs stay valid. A state without carrier gets a display
+  number (`CustomBlockDisplay`, one per look of a block, rotation from `minecraft:transformation`) and the Java
+  state `barrier` (`structure_void` when its collision box is disabled). `BlockMapper.blockDisplay(runtimeId)`
+  (any thread) and `blockDisplays()` expose them; their Java state never maps back to the custom block, and keeps
+  its vanilla light.
+- **Pack (resourcepack).** Displays are published with the carriers as `CustomBlockCarrier` entries whose
+  `javaBlock` is `CustomBlockCarrier.DISPLAY` (`javaProperties.id`): the converter writes the block model and
+  the item definition `JavaAssetNames.blockDisplayModel(id)` (`jtb:block_display/<id>`);
+  `ConversionArtifacts.hasBlockDisplay(id)`.
+- **World.** `world.BlockDisplays`, driven by `ChunkManager` like the item frames: an `item_display` at the block
+  centre holding paper with that item model, yaw `y + 180` and pitch `x` (an item display turns its item half a
+  turn), spawned with its column, replaced or removed with its block, removed with its chunk.
+- **Breaking (player).** The Java client never finishes digging a barrier: `BlockBreaking` runs those digs like
+  empty item frames (`CONTINUE` every tick, the end after the time of the server's crack event); the sound
+  module draws their cracks (`drawsOwnCracks`).
+
+## Converted pack and translated stacks (resourcepack, inventory)
+
+Stacks the server sends while the Java client is still configuring are translated before the client loaded
+the pack, without their item models. `ResourcePackState` calls `InventoryState.retranslate()` on
+`SUCCESSFULLY_LOADED`, so the inventory sent at game start is translated again. Bump
+`BedrockToJavaConverter.VERSION` whenever the conversion output changes. Client entity definitions in the
+`minecraft` namespace that are not vanilla entities (`minecraft:npc_sylven`) are custom entities and get a model.
+
+## Data-driven screens (form)
+
+`DataStore` keeps the update counters the vanilla client keeps: the property version (1 until a
+`DataStoreChange` replaces the property) and one version per path, advanced by the server's updates and the
+proxy's (`layout.2.toggled` and `layout[2].toggled` are one path). PowerNukkitX ignores a client update whose
+path version is not the next one.
 
 ## Inventories and items (inventory)
 

@@ -44,6 +44,10 @@ bedrock:
   # Copiez la clé publique affichée au démarrage dans pnx.yml
   # (network-settings.java-bridge.proxyPublicKeys).
   trusted-key-file: jtb-proxy-key.pem
+  # Clé NetherNet du proxy (P-384, générée au premier démarrage) : chaque connexion présente une
+  # identité signée avec elle, comme l'exige PowerNukkitX. Gardez le même fichier d'un démarrage à
+  # l'autre et entre plusieurs proxys d'un même réseau.
+  nethernet-identity-file: jtb-nethernet-identity.pem
   # Préfixe ajouté au pseudo Bedrock des joueurs Java (ex: "." pour éviter les doublons avec les
   # gamertags Xbox). "auto" : "." en mode trusted (PowerNukkitX exige le préfixe de
   # java-bridge.namePrefix, "." par défaut), aucun préfixe sinon.

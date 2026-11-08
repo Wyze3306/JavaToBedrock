@@ -85,6 +85,7 @@ EXTRA_LEVEL_EVENT_PARTICLES = {
     102: {"type": "ORANGE_POPLAR_LEAVES"},
     103: {"type": "RED_POPLAR_LEAVES"},
     104: {"type": "YELLOW_POPLAR_LEAVES"},
+    105: {"type": "ITEM_SNOWBALL"},     # IceBallBreak (Bedrock 1.26.60)
     22: {"type": "MYCELIUM"},           # TownAura
     43: {"type": "CRIT"},               # TrackingEmitter
     47: {"type": "ELDER_GUARDIAN"},     # MobAppearance

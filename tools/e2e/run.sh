@@ -30,6 +30,19 @@ echo "== building"
 CP=$(cd "$ROOT" && "$GRADLE" -q -I "$INIT" printTestClasspath | tail -1)
 
 cp "$PNX_JAR" "$PNX/powernukkitx.jar"
+# Server-side helpers of the scenarios, rebuilt for every run against this PowerNukkitX jar.
+# Player data too: an inventory left by an earlier scenario (test items of another plugin) would change this one.
+rm -rf "$PNX/plugins" "$PNX/resource_packs" "$PNX/players"; mkdir -p "$PNX/plugins" "$PNX/resource_packs"
+case "$SCENARIO" in
+  form|ui)
+    bash "$ROOT/src/test/pnx-plugin/build.sh" "$PNX/powernukkitx.jar" "$PNX/plugins/JtbTestPlugin.jar" > /dev/null || exit 2 ;;
+  resource_pack|inventory_custom_items)
+    java -cp "$CP" io.github.wyze3306.jtb.resourcepack.TestPacks "$PNX/resource_packs" || exit 2
+    work=$(mktemp -d)
+    javac --release 21 -nowarn -d "$work" -cp "$PNX/powernukkitx.jar" "$ROOT"/src/test/resources/e2e/pnx-plugin/jtb/e2e/*.java \
+      && cp "$ROOT/src/test/resources/e2e/pnx-plugin/plugin.yml" "$work/" && (cd "$work" && jar cf "$PNX/plugins/JtbE2eItems.jar" .) || exit 2
+    rm -rf "$work" ;;
+esac
 start_pnx() {
   (cd "$PNX" && exec "${PNX_JAVA:-java}" -Xmx1500m -Dfile.encoding=UTF-8 --add-opens java.base/java.lang=ALL-UNNAMED \
       --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED \
@@ -70,7 +83,7 @@ wait_for "$OUT/proxy.log" "Ready in" 60 || { echo "The proxy did not start"; tai
 
 echo "== headless Java client, scenario $SCENARIO, ${SECONDS_TO_PLAY}s"
 java -cp "$CP" -Dhost=127.0.0.1 -Dport=$JAVA_PORT -Dname=Tester -Dseconds="$SECONDS_TO_PLAY" -Dscenario="$SCENARIO" \
-    io.github.wyze3306.jtb.e2e.HeadlessJavaClient > "$OUT/client.log" 2>&1
+    -Dpnx-log="$OUT/pnx.log" io.github.wyze3306.jtb.e2e.HeadlessJavaClient > "$OUT/client.log" 2>&1
 status=$?
 grep -E "^\[client\] (CHECK|Checks passed|JOIN|Disconnect)" "$OUT/client.log"
 echo "== proxy warnings"; grep -E "WARN|ERROR" "$OUT/proxy.log" | sort | uniq -c | sort -rn | head -20

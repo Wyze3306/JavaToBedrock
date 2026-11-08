@@ -7,7 +7,7 @@ import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.protocol.bedrock.codec.BedrockCodec;
 import org.cloudburstmc.protocol.bedrock.codec.BedrockCodecHelper;
-import org.cloudburstmc.protocol.bedrock.codec.v2192.Bedrock_v2192;
+import org.cloudburstmc.protocol.bedrock.codec.v2225.Bedrock_v2225;
 import org.cloudburstmc.protocol.bedrock.data.ClientPlayMode;
 import org.cloudburstmc.protocol.bedrock.data.InputMode;
 import org.cloudburstmc.protocol.bedrock.data.PlayerActionType;
@@ -241,7 +241,7 @@ class AuthInputBuilderTest {
     }
 
     private static PlayerAuthInputPacket roundTrip(PlayerAuthInputPacket packet) throws Exception {
-        BedrockCodec codec = Bedrock_v2192.CODEC;
+        BedrockCodec codec = Bedrock_v2225.CODEC;
         BedrockCodecHelper helper = codec.createHelper();
         ByteBuf buffer = Unpooled.buffer();
         try {
@@ -255,7 +255,7 @@ class AuthInputBuilderTest {
 
     @Test
     void everyInputFlagOrdinalFitsTheWireFormat() {
-        // The v2192 serializer writes each flag as its ordinal: the enum must not be reordered.
+        // The v2225 serializer writes each flag as its ordinal: the enum must not be reordered.
         assertEquals(37, PlayerAuthInputData.HANDLE_TELEPORT.ordinal());
         assertEquals(42, PlayerAuthInputData.START_FLYING.ordinal());
         assertEquals(48, PlayerAuthInputData.BLOCK_BREAKING_DELAY_ENABLED.ordinal());

@@ -42,7 +42,6 @@ final class DduiDialog extends ShownDialog {
     final int formId;
     private final String store;
     private final String property;
-    private int updateCount;
 
     DduiDialog(FormState state, String screenId, int formId, String store, String property) {
         this.state = state;
@@ -311,8 +310,8 @@ final class DduiDialog extends ShownDialog {
         update.setPath(path);
         update.setType(type);
         update.setData(value);
-        update.setPropertyUpdateCount(++this.updateCount);
-        update.setPathUpdateCount(1);
+        update.setPropertyUpdateCount(this.state.dataStore().propertyVersion(this.store, this.property));
+        update.setPathUpdateCount(this.state.dataStore().nextPathVersion(this.store, this.property, path));
         ServerboundDataStorePacket packet = new ServerboundDataStorePacket();
         packet.setUpdate(update);
         this.state.session().sendBedrock(packet);

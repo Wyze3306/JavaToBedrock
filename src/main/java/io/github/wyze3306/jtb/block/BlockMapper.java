@@ -72,6 +72,9 @@ public final class BlockMapper implements SessionState {
     private int[] vanillaRuntime = new int[0];
     private int[] customRuntime = new int[0];
     private int[] customJava = new int[0];
+    /** Display number of each custom state without carrier ({@link CustomBlockDisplay}), or -1. */
+    private int[] customDisplay = new int[0];
+    private List<CustomBlockDisplay> displays = List.of();
     private NbtMap[] customStates = new NbtMap[0];
     private String[] customNames = new String[0];
     private List<CustomBlock> customBlocks = List.of();
@@ -104,6 +107,8 @@ public final class BlockMapper implements SessionState {
         }
         this.customRuntime = new int[total];
         this.customJava = new int[total];
+        this.customDisplay = new int[total];
+        allocate(definitions, allocator, total);
         int index = 0;
         for (CustomDefinition definition : definitions) {
             List<CustomBlock.State> states = new ArrayList<>(definition.permutations().size());
@@ -113,9 +118,8 @@ public final class BlockMapper implements SessionState {
                 while (BedrockBlockPalette.indexOfHash(hash) >= 0 || !usedHashes.add(hash)) {
                     hash++;
                 }
-                int java = allocator.allocate(definition.identifier(), definition.nbt(), permutation);
+                int java = this.customJava[index];
                 this.customRuntime[index] = hash;
-                this.customJava[index] = java;
                 tags.add(NbtMap.builder().putString("name", definition.identifier()).putCompound("states", permutation).build());
                 names.add(definition.identifier());
                 states.add(new CustomBlock.State(hash, permutation, java, states.size()));
@@ -143,14 +147,26 @@ public final class BlockMapper implements SessionState {
         this.javaToCustom.clear();
         for (int i = 0; i < total; i++) {
             this.customByRuntime.put(this.customRuntime[i], i);
-            this.javaToCustom.putIfAbsent(this.customJava[i], i);
+            if (this.customDisplay[i] < 0) {
+                // The invisible blocks of displayed states stay vanilla blocks for Java -> Bedrock.
+                this.javaToCustom.putIfAbsent(this.customJava[i], i);
+            }
         }
         this.airRuntimeId = this.hashed ? AIR_HASH : this.vanillaRuntime[BedrockBlockPalette.indexOfHash(AIR_HASH)];
         applyCustomLight(blocks);
         publishCarriers(blocks);
         if (total > 0) {
-            this.session.logger().info("[{}] {} custom blocks ({} states, {} carrier states available), {} runtime ids",
-                    this.session.getName(), blocks.size(), total, CustomBlockAllocator.capacity(CustomBlockAllocator.Pool.OPAQUE),
+            int displayed = 0;
+            for (int display : this.customDisplay) {
+                if (display >= 0) {
+                    displayed++;
+                }
+            }
+            this.session.logger().info("[{}] {} custom blocks, {} states: {} carrier states used of {}, {} states drawn by"
+                            + " display entities ({} looks), {} as {}; {} runtime ids",
+                    this.session.getName(), blocks.size(), total, allocator.carriersUsed(),
+                    CustomBlockAllocator.capacity(CustomBlockAllocator.Pool.OPAQUE), displayed, this.displays.size(),
+                    total - displayed - (allocator.states() - allocator.fallbacks()), CustomBlockAllocator.FALLBACK,
                     this.hashed ? "hashed" : "ordered");
         }
     }
@@ -159,18 +175,114 @@ public final class BlockMapper implements SessionState {
      * Tells the resource pack converter which Java state shows each custom block state, so the pack
      * retextures those carrier states (states left on the fallback block are not rewritten).
      */
+    /**
+     * Gives every custom state its Java state. Carriers go first to the blocks with the fewest looks
+     * (decoration blocks, usually placed by the thousand), then in definition order; states left
+     * without one are displayed ({@link CustomBlockDisplay}), one display per look of a block.
+     * Deterministic, so a cached converted pack stays valid.
+     */
+    private void allocate(List<CustomDefinition> definitions, CustomBlockAllocator allocator, int total) {
+        String[][] looks = new String[definitions.size()][];
+        int[] first = new int[definitions.size()];
+        Integer[] order = new Integer[definitions.size()];
+        int[] lookCount = new int[definitions.size()];
+        for (int d = 0, index = 0; d < definitions.size(); d++) {
+            CustomDefinition definition = definitions.get(d);
+            first[d] = index;
+            order[d] = d;
+            looks[d] = new String[definition.permutations().size()];
+            for (int p = 0; p < looks[d].length; p++) {
+                looks[d][p] = CustomBlockComponents.appearanceKey(definition.nbt(), definition.permutations().get(p));
+            }
+            lookCount[d] = (int) Arrays.stream(looks[d]).distinct().count();
+            index += looks[d].length;
+        }
+        Arrays.sort(order, Comparator.comparingInt((Integer d) -> lookCount[d]).thenComparingInt(d -> d));
+        boolean displays = this.session.config().features().customBlocks();
+        int barrier = JavaBlockStates.defaultState("barrier");
+        int structureVoid = JavaBlockStates.defaultState("structure_void");
+        Map<String, Integer> displayIds = new java.util.HashMap<>();
+        List<CustomBlockDisplay> shown = new ArrayList<>();
+        Arrays.fill(this.customDisplay, -1);
+        for (int d : order) {
+            CustomDefinition definition = definitions.get(d);
+            for (int p = 0; p < looks[d].length; p++) {
+                NbtMap states = definition.permutations().get(p);
+                int index = first[d] + p;
+                int carrier = allocator.carrier(definition.identifier(), definition.nbt(), states, looks[d][p]);
+                if (carrier >= 0) {
+                    this.customJava[index] = carrier;
+                    continue;
+                }
+                if (!displays) {
+                    this.customJava[index] = JavaBlockStates.parse(CustomBlockAllocator.FALLBACK);
+                    continue;
+                }
+                String key = definition.identifier() + "|" + looks[d][p];
+                Integer id = displayIds.get(key);
+                NbtMap components = CustomBlockComponents.components(definition.nbt(), states);
+                if (id == null) {
+                    id = shown.size();
+                    displayIds.put(key, id);
+                    NbtMap transformation = components.getCompound("minecraft:transformation");
+                    shown.add(new CustomBlockDisplay(id, definition.identifier(), states, definition.nbt(),
+                            Math.floorMod(-transformation.getInt("RX", 0) * 90, 360),
+                            Math.floorMod(-transformation.getInt("RY", 0) * 90, 360)));
+                }
+                this.customDisplay[index] = id;
+                this.customJava[index] = hasCollision(components) ? barrier : structureVoid;
+            }
+        }
+        this.displays = List.copyOf(shown);
+    }
+
+    /** False for {@code minecraft:collision_box} disabled ({@code false}, {@code enabled: 0} or an empty box). */
+    private static boolean hasCollision(NbtMap components) {
+        Object box = components.get("minecraft:collision_box");
+        if (box instanceof Byte enabled) {
+            return enabled != 0;
+        }
+        if (box instanceof NbtMap map) {
+            if (map.containsKey("enabled") && map.getBoolean("enabled") == false) {
+                return false;
+            }
+            List<Float> size = map.getList("size", NbtType.FLOAT, List.of());
+            return size.size() != 3 || size.get(0) > 0 && size.get(1) > 0 && size.get(2) > 0;
+        }
+        return true;
+    }
+
+    /**
+     * The display number of a custom state shown by an entity ({@link CustomBlockDisplay}), or -1.
+     * Any thread (the tables are replaced, never modified, at StartGame).
+     */
+    public int blockDisplay(int bedrockRuntimeId) {
+        int entry = entry(bedrockRuntimeId);
+        return entry < -1 ? this.customDisplay[-2 - entry] : -1;
+    }
+
+    /** The displayed looks of this server's custom blocks, by display number. */
+    public List<CustomBlockDisplay> blockDisplays() {
+        return this.displays;
+    }
+
     private void publishCarriers(List<CustomBlock> blocks) {
         int fallback = JavaBlockStates.defaultState(CustomBlockAllocator.FALLBACK);
         List<CustomBlockCarrier> carriers = new ArrayList<>();
         for (CustomBlock block : blocks) {
             for (CustomBlock.State state : block.states()) {
-                if (JavaBlockStates.blockId(state.javaState()) == JavaBlockStates.blockId(fallback)) {
+                if (JavaBlockStates.blockId(state.javaState()) == JavaBlockStates.blockId(fallback)
+                        || this.customDisplay[customIndex(state)] >= 0) {
                     continue;
                 }
                 carriers.add(new CustomBlockCarrier(block.identifier(), state.states(), block.definition(),
                         "minecraft:" + JavaBlockStates.blockName(JavaBlockStates.blockId(state.javaState())),
                         JavaBlockStates.properties(state.javaState())));
             }
+        }
+        for (CustomBlockDisplay display : this.displays) {
+            carriers.add(new CustomBlockCarrier(display.identifier(), display.states(), display.definition(),
+                    CustomBlockCarrier.DISPLAY, Map.of("id", String.valueOf(display.id()))));
         }
         this.session.get(ResourcePackState.KEY).setCustomBlockCarriers(carriers);
     }
@@ -291,7 +403,9 @@ public final class BlockMapper implements SessionState {
             int dampening = number(components.getCompound("minecraft:light_dampening", NbtMap.EMPTY).get("lightLevel"), 15);
             byte value = (byte) ((Math.clamp(emission, 0, 15) << 4) | Math.clamp(dampening, 0, 15));
             for (CustomBlock.State state : block.states()) {
-                if (vanilla[state.javaState()] != value) {
+                // Displayed states share barrier / structure_void: those keep their vanilla light (the
+                // display entity inside them has to be lit).
+                if (this.customDisplay[customIndex(state)] < 0 && vanilla[state.javaState()] != value) {
                     if (table == null) {
                         table = Arrays.copyOf(vanilla, vanilla.length);
                     }
@@ -314,6 +428,11 @@ public final class BlockMapper implements SessionState {
     }
 
     /** Vanilla palette index (>= 0), custom state (-2 - index), or -1 for an unknown runtime id. */
+    /** Index of a custom state in the custom tables. */
+    private int customIndex(CustomBlock.State state) {
+        return -2 - entry(state.runtimeId());
+    }
+
     private int entry(int runtimeId) {
         if (this.hashed) {
             int index = BedrockBlockPalette.indexOfHash(runtimeId);

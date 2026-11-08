@@ -1,17 +1,17 @@
 name: End-to-end
 
-# A real PowerNukkitX server (built from the fork with the JavaToBedrock companion features), the
+# A real PowerNukkitX server (Bedrock 1.26.60, NetherNet, built from the fork the Linesia server runs), the
 # proxy and the headless Java client. About 30 minutes: run on pull requests, on the default branch
 # and on demand.
 on:
   workflow_dispatch:
     inputs:
       pnx_repo:
-        description: PowerNukkitX repository with the JavaToBedrock companion features
+        description: PowerNukkitX repository (Bedrock 1.26.60, NetherNet)
         default: Wyze3306/PowerNukkitX
       pnx_ref:
         description: PowerNukkitX branch, tag or commit
-        default: jtb-java-bridge
+        default: master
   pull_request:
   push:
     branches: [main, master, ccr-80c30af5-ygsiz9]
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ${{ inputs.pnx_repo || 'Wyze3306/PowerNukkitX' }}
-          ref: ${{ inputs.pnx_ref || 'jtb-java-bridge' }}
+          ref: ${{ inputs.pnx_ref || 'master' }}
           path: pnx-src
           submodules: recursive
       - uses: actions/setup-java@v4
@@ -44,7 +44,7 @@ jobs:
         run: |
           status=0
           # scenario:seconds (each scenario documents how long it needs)
-          for run in default:40 world:40 player:40 entity:40 chat:40 sound:40 world_travel:40 inventory:160 inventory_menus:230 item_frame:200; do
+          for run in default:40 world:40 player:40 entity:40 chat:40 sound:40 world_travel:40 form:60 ui:60 resource_pack:40 inventory_custom_items:60 inventory:160 inventory_menus:230 item_frame:200; do
             scenario=${run%%:*}
             echo "::group::$scenario"
             tools/e2e/run.sh pnx-src/build/powernukkitx.jar "$scenario" "${run##*:}" || { status=1; echo "::error::scenario $scenario failed"; }

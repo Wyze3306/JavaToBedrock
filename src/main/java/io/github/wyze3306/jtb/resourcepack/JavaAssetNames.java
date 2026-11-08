@@ -62,6 +62,14 @@ public final class JavaAssetNames {
     }
 
     /**
+     * Item model of a custom block look shown by a display entity ({@code block.CustomBlockDisplay}):
+     * {@code jtb:block_display/<id>}, an item definition pointing at the block model.
+     */
+    public static String blockDisplayModel(int id) {
+        return NAMESPACE + ":block_display/" + id;
+    }
+
+    /**
      * Equipment asset ({@code equippable.asset_id}) of a custom armour item:
      * {@code jtb:<namespace>/<path>}, defined in {@code assets/jtb/equipment/<namespace>/<path>.json}.
      */

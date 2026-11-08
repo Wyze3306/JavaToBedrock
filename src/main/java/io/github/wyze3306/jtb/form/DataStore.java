@@ -25,6 +25,14 @@ import java.util.Map;
 final class DataStore {
 
     private final Map<String, Map<String, Object>> stores = new HashMap<>();
+    /**
+     * Update counters, shared by both sides like the vanilla client keeps them: the version of each
+     * property (its last {@code DataStoreChange}, 1 until the server replaces it) and the version of
+     * each path, which the server's updates and ours both advance. PowerNukkitX ignores a client
+     * update whose path version is not the next one.
+     */
+    private final Map<String, Integer> propertyVersions = new HashMap<>();
+    private final Map<String, Integer> pathVersions = new HashMap<>();
 
     /**
      * Applies one change.
@@ -34,20 +42,43 @@ final class DataStore {
     boolean apply(DataStoreChangeInfo info) {
         switch (info) {
             case DataStoreChange change -> {
+                String key = change.getDataStoreName() + '|' + change.getProperty();
+                this.propertyVersions.put(key, Math.max(1, change.getUpdateCount()));
+                this.pathVersions.keySet().removeIf(path -> path.startsWith(key + '|'));
                 Object value = convert(change.getTheNewPropertyValue());
                 store(change.getDataStoreName()).put(change.getProperty(), value);
                 return true;
             }
             case DataStoreUpdate update -> {
+                this.pathVersions.merge(pathKey(update.getDataStoreName(), update.getProperty(), update.getPath()),
+                        update.getPathUpdateCount(), Math::max);
                 return set(update.getDataStoreName(), update.getProperty(), update.getPath(), update.getData());
             }
             case DataStoreRemoval removal -> {
+                String prefix = removal.getDataStoreName() + '|';
+                this.propertyVersions.keySet().removeIf(key -> key.startsWith(prefix));
+                this.pathVersions.keySet().removeIf(key -> key.startsWith(prefix));
                 return this.stores.remove(removal.getDataStoreName()) != null;
             }
             default -> {
                 return false;
             }
         }
+    }
+
+    /** The version of {@code property} a client update carries. */
+    int propertyVersion(String store, String property) {
+        return this.propertyVersions.getOrDefault(store + '|' + property, 1);
+    }
+
+    /** The version of {@code path} for the next client update (the last one seen, plus one). */
+    int nextPathVersion(String store, String property, String path) {
+        return this.pathVersions.merge(pathKey(store, property, path), 1, Integer::sum);
+    }
+
+    /** {@code layout.2.toggled} and {@code layout[2].toggled} are the same path. */
+    private static String pathKey(String store, String property, String path) {
+        return store + '|' + property + '|' + (path == null ? "" : path.replaceAll("\\.(\\d+)(?=\\.|$)", "[$1]"));
     }
 
     @Nullable Object get(String store, String property) {

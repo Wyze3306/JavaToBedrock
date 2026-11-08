@@ -1,5 +1,7 @@
 package io.github.wyze3306.jtb.player;
 
+import io.github.wyze3306.jtb.block.BlockMapper;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -42,7 +44,9 @@ import java.util.BitSet;
  * {@code START + ABORT}; an empty frame is broken, in creative with {@code START + PREDICT}, in survival
  * with the digging sequence held for the frame's break time. Java sends no digging for an entity, so
  * the proxy completes that dig itself, after the time the server's crack level event announces
- * ({@link #onServerCrack}), or the frame's hand break time until it arrives.
+ * ({@link #onServerCrack}), or the frame's hand break time until it arrives. Custom blocks drawn by a
+ * display entity are invisible barriers on Java, which its client never breaks: their digs are run
+ * the same way.
  * <p>
  * CONTRACT (owner: player, used by sound). Other players' cracks are drawn by
  * {@link io.github.wyze3306.jtb.sound.BlockCracking}; the sound subsystem skips the block the local
@@ -59,6 +63,8 @@ public final class BlockBreaking implements SessionState {
     private static final int FULL_PROGRESS = 65535;
     /** Ticks to break a frame by hand on the ground (hardness 0.25 x 1.5 s), until the server says otherwise. */
     private static final int FRAME_BREAK_TICKS = 8;
+    /** Ticks to break a custom block shown by a display entity, until the server's crack event says otherwise. */
+    private static final int DISPLAYED_BLOCK_BREAK_TICKS = 30;
 
     private final ProxySession session;
     private boolean digging;
@@ -106,6 +112,13 @@ public final class BlockBreaking implements SessionState {
                     this.startedThisTick = true;
                     this.digPosition = position;
                     this.continueAction = AuthInputBuilder.blockAction(PlayerActionType.CONTINUE_DESTROY_BLOCK, position, face);
+                    if (isDisplayedBlock(position)) {
+                        // An invisible barrier on Java: its client never finishes the dig, the proxy does.
+                        this.frameDig = true;
+                        this.frameFace = face;
+                        this.frameTicks = 0;
+                        this.frameTicksNeeded = DISPLAYED_BLOCK_BREAK_TICKS;
+                    }
                 }
             }
             case CANCEL_DIGGING -> {
@@ -188,6 +201,20 @@ public final class BlockBreaking implements SessionState {
 
     boolean digging() {
         return this.digging;
+    }
+
+    /** Whether the block is a custom block drawn by a display entity (an invisible barrier on Java). */
+    private boolean isDisplayedBlock(Vector3i position) {
+        int runtimeId = this.session.get(WorldState.KEY).bedrockBlockAt(position.getX(), position.getY(), position.getZ(), 0);
+        return this.session.get(BlockMapper.KEY).blockDisplay(runtimeId) >= 0;
+    }
+
+    /**
+     * Whether the Java client draws the cracks of this block itself: it does for the block its player
+     * digs, except item frames and displayed custom blocks, whose digs the proxy runs.
+     */
+    public boolean drawsOwnCracks(int x, int y, int z) {
+        return isDigging(x, y, z) && !this.frameDig;
     }
 
     /** Undoes the Java client's predicted break with the block the proxy knows. */

@@ -1579,6 +1579,20 @@ public final class InventoryState implements SessionState {
         onGameStart();
     }
 
+    /**
+     * Forgets every Java stack translated so far: their look depends on the converted resource pack
+     * (custom item models, armour assets), which becomes usable only once the Java client loaded it.
+     * Slots translated before that (the inventory the server sends while the client is still
+     * configuring) are translated again for the inventory sent at game start.
+     */
+    public void retranslate() {
+        this.mirror.player.invalidateJava();
+        this.mirror.armor.invalidateJava();
+        this.mirror.offhand.invalidateJava();
+        this.mirror.ui.invalidateJava();
+        this.mirror.window.invalidateJava();
+    }
+
     /** Called once the Java client is in the game: sends the whole player inventory and the selected slot. */
     void onGameStart() {
         if (this.closed) {

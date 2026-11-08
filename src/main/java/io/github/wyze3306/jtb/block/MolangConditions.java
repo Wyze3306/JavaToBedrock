@@ -1,4 +1,4 @@
-package io.github.wyze3306.jtb.resourcepack.convert;
+package io.github.wyze3306.jtb.block;
 
 import org.cloudburstmc.nbt.NbtMap;
 import org.jspecify.annotations.Nullable;
@@ -12,7 +12,7 @@ import java.util.Objects;
  * number, string and boolean literals, {@code == != < > <= >=}, {@code && || !} and parentheses.
  * Anything else makes the condition false.
  */
-final class MolangConditions {
+public final class MolangConditions {
 
     private final String text;
     private final NbtMap states;
@@ -24,7 +24,7 @@ final class MolangConditions {
     }
 
     /** True when {@code condition} holds for {@code states}; false when it cannot be evaluated. */
-    static boolean test(String condition, NbtMap states) {
+    public static boolean test(String condition, NbtMap states) {
         if (condition.isBlank()) {
             return true;
         }
