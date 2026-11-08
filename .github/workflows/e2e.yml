@@ -14,7 +14,7 @@ on:
         default: master
   pull_request:
   push:
-    branches: [main, master, ccr-80c30af5-ygsiz9]
+    branches: [main]
 
 # A newer push replaces a run still in progress.
 concurrency:
