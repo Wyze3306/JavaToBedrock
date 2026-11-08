@@ -44,16 +44,21 @@ final class ChestMenu extends FormDialog {
     private int[] buttons = new int[0];
     private ItemStack[] items = new ItemStack[0];
     private int stateId;
+    /** Shown page when the buttons need more than six rows (45 per page, arrows in the bottom row). */
+    private int page;
+    private static final int PREVIOUS = -2;
+    private static final int NEXT = -3;
+    private static final int PAGE_SIZE = 45;
 
     ChestMenu(FormState state, int formId, BedrockForm form) {
         super(state, formId, form, false);
         this.state = state;
     }
 
-    /** Whether a form can be a chest menu: buttons only (labels allowed), and at most 6 rows. */
+    /** Whether a form can be a chest menu: buttons only (labels allowed); past six rows it is paged. */
     static boolean fits(BedrockForm form) {
         return switch (form) {
-            case BedrockForm.Simple simple -> shownButtons(simple) > 0 && rows(simple) <= 6;
+            case BedrockForm.Simple simple -> shownButtons(simple) > 0;
             case BedrockForm.Modal ignored -> true;
             case BedrockForm.Custom ignored -> false;
         };
@@ -101,12 +106,25 @@ final class ChestMenu extends FormDialog {
         switch (this.form) {
             case BedrockForm.Simple simple -> {
                 title = text.apply(simple.title());
-                size = rows(simple) * 9;
+                boolean paged = rows(simple) > 6;
+                size = paged ? 54 : rows(simple) * 9;
                 for (int i = 0; i < size; i++) {
                     slots.add(null);
                     buttonSlots.add(-1);
                 }
                 int next = 0;
+                int pages = (shownButtons(simple) + PAGE_SIZE - 1) / PAGE_SIZE;
+                if (paged) {
+                    this.page = Math.max(0, Math.min(this.page, pages - 1));
+                    if (this.page > 0) {
+                        slots.set(45, item(session, "arrow", null, "§e← " + (this.page) + "/" + pages, null, text));
+                        buttonSlots.set(45, PREVIOUS);
+                    }
+                    if (this.page < pages - 1) {
+                        slots.set(53, item(session, "arrow", null, "§e" + (this.page + 2) + "/" + pages + " →", null, text));
+                        buttonSlots.set(53, NEXT);
+                    }
+                }
                 if (hasInfo(simple)) {
                     List<String> lines = new ArrayList<>();
                     if (!simple.content().isBlank()) {
@@ -117,16 +135,25 @@ final class ChestMenu extends FormDialog {
                             lines.add(label.text());
                         }
                     }
-                    slots.set(4, item(session, "book", null, simple.title(), String.join("\n", lines), text));
-                    next = 9;
+                    ItemStack book = item(session, "book", null, simple.title(), String.join("\n", lines), text);
+                    if (paged) {
+                        slots.set(49, book);
+                    } else {
+                        slots.set(4, book);
+                        next = 9;
+                    }
                 }
                 int button = 0;
+                int visible = 0;
                 for (BedrockForm.SimpleElement element : simple.elements()) {
                     if (element instanceof BedrockForm.Button b) {
                         if (shown(b)) {
-                            slots.set(next, item(session, null, b, b.text(), null, text));
-                            buttonSlots.set(next, button);
-                            next++;
+                            if (!paged || visible / PAGE_SIZE == this.page) {
+                                slots.set(next, item(session, null, b, b.text(), null, text));
+                                buttonSlots.set(next, button);
+                                next++;
+                            }
+                            visible++;
                         }
                         button++;
                     }
@@ -179,6 +206,10 @@ final class ChestMenu extends FormDialog {
     /** Answers the form with the button of {@code slot}; KEEP when the slot holds no button. */
     Outcome clickSlot(int slot) {
         int button = button(slot);
+        if (button == PREVIOUS || button == NEXT) {
+            this.page += button == NEXT ? 1 : -1;
+            return Outcome.REOPEN;
+        }
         if (button < 0) {
             return Outcome.KEEP;
         }

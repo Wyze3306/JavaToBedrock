@@ -108,7 +108,9 @@ public final class BlockMapper implements SessionState {
         this.customRuntime = new int[total];
         this.customJava = new int[total];
         this.customDisplay = new int[total];
-        allocate(definitions, allocator, total);
+        long allocationStart = System.nanoTime();
+        int carriersUsed = allocate(definitions, allocator, total);
+        long allocationMillis = (System.nanoTime() - allocationStart) / 1_000_000;
         int index = 0;
         for (CustomDefinition definition : definitions) {
             List<CustomBlock.State> states = new ArrayList<>(definition.permutations().size());
@@ -162,12 +164,18 @@ public final class BlockMapper implements SessionState {
                     displayed++;
                 }
             }
+            int fallback = JavaBlockStates.parse(CustomBlockAllocator.FALLBACK);
+            int stone = 0;
+            for (int i = 0; i < total; i++) {
+                if (this.customDisplay[i] < 0 && this.customJava[i] == fallback) {
+                    stone++;
+                }
+            }
             this.session.logger().info("[{}] {} custom blocks, {} states: {} carrier states used of {}, {} states drawn by"
-                            + " display entities ({} looks), {} as {}; {} runtime ids",
-                    this.session.getName(), blocks.size(), total, allocator.carriersUsed(),
+                            + " display entities ({} looks), {} as {}; {} runtime ids; allocated in {} ms",
+                    this.session.getName(), blocks.size(), total, carriersUsed,
                     CustomBlockAllocator.capacity(CustomBlockAllocator.Pool.OPAQUE), displayed, this.displays.size(),
-                    total - displayed - (allocator.states() - allocator.fallbacks()), CustomBlockAllocator.FALLBACK,
-                    this.hashed ? "hashed" : "ordered");
+                    stone, CustomBlockAllocator.FALLBACK, this.hashed ? "hashed" : "ordered", allocationMillis);
         }
     }
 
@@ -181,7 +189,47 @@ public final class BlockMapper implements SessionState {
      * without one are displayed ({@link CustomBlockDisplay}), one display per look of a block.
      * Deterministic, so a cached converted pack stays valid.
      */
-    private void allocate(List<CustomDefinition> definitions, CustomBlockAllocator allocator, int total) {
+    /** The allocation of one set of definitions: Java states, display numbers, displays, carriers used. */
+    private record Allocation(int[] java, int[] display, List<CustomBlockDisplay> displays, int carriersUsed) {
+    }
+
+    /**
+     * Allocations by definitions fingerprint: every player of a server gets the same one (it is
+     * deterministic), and computing it takes seconds for servers with tens of thousands of states.
+     */
+    private static final Map<String, Allocation> ALLOCATIONS = Collections.synchronizedMap(new LinkedHashMap<>(4, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Allocation> eldest) {
+            return size() > 4;
+        }
+    });
+
+    /** Fills {@code customJava} and {@code customDisplay}; returns the carriers used. */
+    private int allocate(List<CustomDefinition> definitions, CustomBlockAllocator allocator, int total) {
+        StringBuilder key = new StringBuilder().append(this.session.config().features().customBlocks()).append('|').append(total);
+        for (CustomDefinition definition : definitions) {
+            // Structure, not the whole NBT (hashing tens of thousands of permutations costs a second):
+            // the cache only lives as long as the proxy, and a server that changes its blocks changes these.
+            NbtMap nbt = definition.nbt();
+            key.append('|').append(definition.identifier()).append(':').append(definition.permutations().size())
+                    .append(':').append(nbt.getList("permutations", NbtType.COMPOUND, List.of()).size())
+                    .append(':').append(nbt.getCompound("components").hashCode());
+        }
+        String fingerprint = key.toString();
+        Allocation cached = ALLOCATIONS.get(fingerprint);
+        if (cached == null) {
+            compute(definitions, allocator, total);
+            cached = new Allocation(this.customJava.clone(), this.customDisplay.clone(), this.displays, allocator.carriersUsed());
+            ALLOCATIONS.put(fingerprint, cached);
+        } else {
+            System.arraycopy(cached.java(), 0, this.customJava, 0, total);
+            System.arraycopy(cached.display(), 0, this.customDisplay, 0, total);
+            this.displays = cached.displays();
+        }
+        return cached.carriersUsed();
+    }
+
+    private void compute(List<CustomDefinition> definitions, CustomBlockAllocator allocator, int total) {
         String[][] looks = new String[definitions.size()][];
         int[] first = new int[definitions.size()];
         Integer[] order = new Integer[definitions.size()];

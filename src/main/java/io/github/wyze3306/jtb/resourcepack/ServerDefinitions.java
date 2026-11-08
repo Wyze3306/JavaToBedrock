@@ -41,11 +41,23 @@ public record ServerDefinitions(List<CustomItem> items, List<CustomBlockCarrier>
             for (CustomItem item : this.items) {
                 update(digest, "item|" + item.identifier() + "|" + item.components());
             }
+            // One block definition is shared by all its states (thousands for some blocks): hashed once.
+            java.util.Map<org.cloudburstmc.nbt.NbtMap, String> definitions = new java.util.IdentityHashMap<>();
             for (CustomBlockCarrier block : this.blocks) {
-                update(digest, "block|" + block.bedrockIdentifier() + "|" + block.bedrockStates() + "|" + block.definition()
+                String definition = definitions.computeIfAbsent(block.definition(), ServerDefinitions::hash);
+                update(digest, "block|" + block.bedrockIdentifier() + "|" + block.bedrockStates() + "|" + definition
                         + "|" + block.javaBlock() + "|" + new TreeMap<>(block.javaProperties()));
             }
             return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static String hash(Object value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(String.valueOf(value).getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) {
             throw new AssertionError(e);
         }
