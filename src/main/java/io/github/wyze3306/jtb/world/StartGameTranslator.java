@@ -1,5 +1,6 @@
 package io.github.wyze3306.jtb.world;
 
+import io.github.wyze3306.jtb.network.java.JavaWire;
 import io.github.wyze3306.jtb.block.BlockMapper;
 import io.github.wyze3306.jtb.entity.EntityTracker;
 import io.github.wyze3306.jtb.network.java.JavaConfiguration;
@@ -44,7 +45,7 @@ final class StartGameTranslator implements BedrockTranslator<StartGamePacket> {
         int viewDistance = Math.clamp(clientView, WorldTranslators.MIN_CHUNK_RADIUS, maxRadius);
 
         PlayerSpawnInfo spawnInfo = new PlayerSpawnInfo(JavaDimensions.typeId(world.dimension()), world.worldKey(),
-                packet.getSettings().getSeed(), GameModes.toJava(player.gameType()), null, false, false, null, 0, 63);
+                packet.getSettings().getSeed(), GameModes.toJava(player.gameType()), JavaWire.NO_PREVIOUS_GAME_MODE, false, false, null, 0, 63);
         session.sendJavaLogin(new ClientboundLoginPacket(player.javaEntityId(), packet.getSettings().isHardcore(),
                 JavaDimensions.WORLD_NAMES, 0, viewDistance, viewDistance, world.reducedDebugInfo(),
                 !world.gameRule(WorldState.RULE_IMMEDIATE_RESPAWN, false), world.gameRule(WorldState.RULE_LIMITED_CRAFTING, false),

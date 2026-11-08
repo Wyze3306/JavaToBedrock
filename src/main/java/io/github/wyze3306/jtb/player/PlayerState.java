@@ -1,5 +1,6 @@
 package io.github.wyze3306.jtb.player;
 
+import io.github.wyze3306.jtb.network.java.JavaWire;
 import io.github.wyze3306.jtb.block.BlockMapper;
 import io.github.wyze3306.jtb.entity.EntityTracker;
 import io.github.wyze3306.jtb.inventory.InventoryState;
@@ -571,7 +572,7 @@ public final class PlayerState implements SessionState {
         // The world's current key (it alternates on same-dimension changes): another key would make
         // the client start a new world and drop the chunks the proxy believes it has.
         this.session.sendJava(new ClientboundRespawnPacket(new PlayerSpawnInfo(JavaDimensions.typeId(dimension),
-                this.session.get(WorldState.KEY).worldKey(), this.hashedSeed, javaGameMode(), null, false, false, this.deathPosition, 0, 63),
+                this.session.get(WorldState.KEY).worldKey(), this.hashedSeed, javaGameMode(), JavaWire.NO_PREVIOUS_GAME_MODE, false, false, this.deathPosition, 0, 63),
                 false, false));
         this.input.reset();
         this.operatorLevel = -1;

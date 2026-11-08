@@ -1,5 +1,6 @@
 package io.github.wyze3306.jtb.world;
 
+import io.github.wyze3306.jtb.network.java.JavaWire;
 import io.github.wyze3306.jtb.block.JavaBlockStates;
 import io.github.wyze3306.jtb.network.java.JavaConfiguration;
 import io.github.wyze3306.jtb.player.GameModes;
@@ -257,7 +258,7 @@ final class WorldTranslators {
         // Java movements mean nothing until the server confirmed the change.
         player.setDimensionChanging(true);
         PlayerSpawnInfo info = new PlayerSpawnInfo(JavaDimensions.typeId(dimension), worldKey, 0L,
-                GameModes.toJava(player.gameType()), null, false, false, null, 0, 63);
+                GameModes.toJava(player.gameType()), JavaWire.NO_PREVIOUS_GAME_MODE, false, false, null, 0, 63);
         session.sendJava(new ClientboundRespawnPacket(info, true, true));
         Vector3f position = packet.getPosition();
         if (position != null && position.getY() < UNKNOWN_Y) {
