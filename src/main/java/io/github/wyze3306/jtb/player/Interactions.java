@@ -45,7 +45,7 @@ final class Interactions {
 
     /** Java drinking time (32 ticks) plus one, so PowerNukkitX counts at least its required 31. */
     private static final int DRINK_TICKS = 33;
-    /** Minimum Java ticks between forwarded swings while digging (the Bedrock swing lasts 6). */
+    /** Minimum Java ticks between forwarded swings (the Bedrock swing lasts 6, its client repeats it every 4 at most). */
     private static final int SWING_INTERVAL = 4;
     private static final int DEFAULT_ACK_DELAY_TICKS = 3;
     private static final int MAX_ACK_DELAY_TICKS = 20;
@@ -122,20 +122,24 @@ final class Interactions {
 
     /**
      * Java {@code Punch} (arm swing). It follows the attack, use or dig of the same tick; a swing on
-     * its own is a missed swing. Digging swings (one per tick) are thinned to the Bedrock rhythm.
+     * its own is a missed swing. Swings are thinned to the Bedrock rhythm.
      */
     void onSwing(boolean digging) {
         ActorSwingSource source = this.actionThisTick;
         if (source == null) {
             if (digging) {
-                if (this.javaTicks - this.lastSwingTick < SWING_INTERVAL) {
-                    return;
-                }
                 source = ActorSwingSource.MINE;
             } else {
                 source = ActorSwingSource.NONE;
                 this.player.input().missedSwing();
             }
+        }
+        // A Bedrock arm swing lasts 6 ticks and its client never starts one faster than every 4; Java
+        // swings every tick while digging and on every click. Server anti-cheats (Linesia's BadPacketF)
+        // flag swings closer than that, so they are thinned whatever they belong to: the attack, use or
+        // dig itself is sent apart.
+        if (this.javaTicks - this.lastSwingTick < SWING_INTERVAL) {
+            return;
         }
         this.lastSwingTick = this.javaTicks;
         AnimatePacket animate = new AnimatePacket();

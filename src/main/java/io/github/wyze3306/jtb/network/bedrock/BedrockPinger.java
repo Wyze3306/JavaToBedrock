@@ -67,13 +67,40 @@ public final class BedrockPinger implements AutoCloseable {
         Path iconFile = this.proxy.dataDirectory().resolve("server-icon.png");
         if (Files.isRegularFile(iconFile)) {
             try {
-                this.icon = Files.readAllBytes(iconFile);
+                this.icon = serverIcon(Files.readAllBytes(iconFile));
             } catch (IOException e) {
                 LOGGER.warn("Could not read {}", iconFile, e);
             }
         }
         this.task = this.proxy.bedrockConnector().group().next()
                 .scheduleAtFixedRate(this::ping, 0, INTERVAL_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * The Java server list only shows a 64 x 64 PNG: any other image is scaled (smoothly) and
+     * re-encoded, so {@code server-icon.png} can be any picture.
+     */
+    static byte[] serverIcon(byte[] file) throws IOException {
+        java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(file));
+        if (image == null) {
+            throw new IOException("not a readable image");
+        }
+        boolean png = file.length > 8 && file[0] == (byte) 0x89 && file[1] == 'P' && file[2] == 'N' && file[3] == 'G';
+        if (png && image.getWidth() == 64 && image.getHeight() == 64) {
+            return file;
+        }
+        java.awt.image.BufferedImage scaled = new java.awt.image.BufferedImage(64, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D graphics = scaled.createGraphics();
+        try {
+            graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            graphics.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING, java.awt.RenderingHints.VALUE_RENDER_QUALITY);
+            graphics.drawImage(image.getScaledInstance(64, 64, java.awt.Image.SCALE_SMOOTH), 0, 0, null);
+        } finally {
+            graphics.dispose();
+        }
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(scaled, "png", out);
+        return out.toByteArray();
     }
 
     private void ping() {
