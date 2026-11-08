@@ -44,7 +44,7 @@ jobs:
         run: |
           status=0
           # scenario:seconds (each scenario documents how long it needs)
-          for run in default:40 world:40 player:40 entity:40 chat:40 sound:40 world_travel:40 form:60 ui:60 resource_pack:40 inventory_custom_items:60 inventory:160 inventory_menus:230 item_frame:200; do
+          for run in default:40 world:40 player:40 entity:40 chat:40 sound:40 world_travel:40 form:60 chest_menu:40 ui:60 resource_pack:40 inventory_custom_items:60 inventory:160 inventory_menus:230 item_frame:200; do
             scenario=${run%%:*}
             echo "::group::$scenario"
             tools/e2e/run.sh pnx-src/build/powernukkitx.jar "$scenario" "${run##*:}" || { status=1; echo "::error::scenario $scenario failed"; }

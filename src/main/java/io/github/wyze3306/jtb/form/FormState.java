@@ -1,5 +1,7 @@
 package io.github.wyze3306.jtb.form;
 
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.inventory.ClientboundContainerClosePacket;
+import io.github.wyze3306.jtb.inventory.InventoryState;
 import io.github.wyze3306.jtb.session.ProxySession;
 import io.github.wyze3306.jtb.session.SessionState;
 import io.github.wyze3306.jtb.session.StateKey;
@@ -117,7 +119,47 @@ public final class FormState implements SessionState {
             sendFormResponse(formId, null, ModalFormCancelReason.USER_BUSY);
             return;
         }
-        show(new FormDialog(this, formId, form, false));
+        show(dialogFor(formId, form));
+    }
+
+    /** A chest menu for forms with buttons when enabled and no container is open, else a dialog. */
+    private FormDialog dialogFor(int formId, BedrockForm form) {
+        if (this.session.config().features().chestMenus() && ChestMenu.fits(form)
+                && !this.session.get(InventoryState.KEY).hasOpenContainer()) {
+            return new ChestMenu(this, formId, form);
+        }
+        return new FormDialog(this, formId, form, false);
+    }
+
+    /**
+     * A click in a container: handled when it is the shown chest menu (true). A click on a button
+     * answers the form; any other click is undone.
+     */
+    public boolean onMenuClick(int containerId, int slot) {
+        if (containerId != ChestMenu.CONTAINER_ID || !(this.current instanceof ChestMenu menu)) {
+            return false;
+        }
+        switch (menu.clickSlot(slot)) {
+            case DONE -> {
+                this.session.sendJava(new ClientboundContainerClosePacket(ChestMenu.CONTAINER_ID));
+                this.current = null;
+                showNext();
+            }
+            case REOPEN -> menu.open();
+            case KEEP -> menu.sendContent();
+        }
+        return true;
+    }
+
+    /** The client closed a container: the form of the shown chest menu is closed (true when it was one). */
+    public boolean onMenuClosed(int containerId) {
+        if (containerId != ChestMenu.CONTAINER_ID || !(this.current instanceof ChestMenu menu)) {
+            return false;
+        }
+        menu.closed();
+        this.current = null;
+        showNext();
+        return true;
     }
 
     /**
@@ -385,6 +427,19 @@ public final class FormState implements SessionState {
     }
 
     private void send(ShownDialog dialog) {
+        if (dialog instanceof ChestMenu menu) {
+            try {
+                menu.open();
+            } catch (RuntimeException e) {
+                this.session.logger().warn("[{}] Could not build a chest menu for {}", this.session.getName(), dialog, e);
+                dialog.failed();
+                if (this.current == dialog) {
+                    this.current = null;
+                    showNext();
+                }
+            }
+            return;
+        }
         NbtMap definition;
         try {
             definition = dialog.build(Key.key(NAMESPACE, ACTION_PREFIX + dialog.displayId));
@@ -402,8 +457,9 @@ public final class FormState implements SessionState {
 
     /** Closes the shown dialog on the client without answering it, then shows the next one. */
     private void dismissCurrent() {
+        boolean menu = this.current instanceof ChestMenu;
         this.current = null;
-        this.session.sendJava(new ClientboundClearDialogPacket());
+        this.session.sendJava(menu ? new ClientboundContainerClosePacket(ChestMenu.CONTAINER_ID) : new ClientboundClearDialogPacket());
         showNext();
     }
 

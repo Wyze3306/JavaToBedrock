@@ -73,6 +73,8 @@ public final class ConversionArtifacts {
     private final Map<String, EntityModel> entityModels = new TreeMap<>();
     private final NavigableSet<String> customBlocks = new TreeSet<>();
     private final NavigableSet<Integer> blockDisplays = new TreeSet<>();
+    /** Bedrock texture path (lower case, no extension) -> item model of form button images. */
+    private final Map<String, String> formIcons = new TreeMap<>();
     /**
      * True when the pack has the screen overlay font used for camera fades: font
      * {@code jtb:overlay} whose character U+E000 is an opaque white square tall enough to cover the
@@ -96,6 +98,7 @@ public final class ConversionArtifacts {
         copy.entityModels.putAll(this.entityModels);
         copy.customBlocks.addAll(this.customBlocks);
         copy.blockDisplays.addAll(this.blockDisplays);
+        copy.formIcons.putAll(this.formIcons);
         copy.fadeOverlay = this.fadeOverlay;
         return copy;
     }
@@ -197,6 +200,15 @@ public final class ConversionArtifacts {
         this.entityModels.put(identifier, model);
     }
 
+    /** Item model showing the image {@code bedrockTexture} ({@code textures/ui/shop}) of a form button, or null. */
+    public @Nullable String formIcon(String bedrockTexture) {
+        return this.formIcons.get(bedrockTexture);
+    }
+
+    public void putFormIcon(String bedrockTexture, String itemModel) {
+        this.formIcons.put(bedrockTexture, itemModel);
+    }
+
     /** Whether the pack has the item model of display {@code id} ({@code JavaAssetNames.blockDisplayModel}). */
     public boolean hasBlockDisplay(int id) {
         return this.blockDisplays.contains(id);
@@ -256,6 +268,9 @@ public final class ConversionArtifacts {
         JsonArray displays = new JsonArray();
         this.blockDisplays.forEach(displays::add);
         json.add("block_displays", displays);
+        JsonObject icons = new JsonObject();
+        this.formIcons.forEach(icons::addProperty);
+        json.add("form_icons", icons);
         json.addProperty("fade_overlay", this.fadeOverlay);
         return json;
     }
@@ -300,6 +315,9 @@ public final class ConversionArtifacts {
                 }
                 artifacts.entityModels.put(entity.getKey(), new EntityModel(model.get("default").getAsString(), parsed));
             }
+        }
+        if (json.get("form_icons") instanceof JsonObject icons) {
+            icons.entrySet().forEach(entry -> artifacts.formIcons.put(entry.getKey(), entry.getValue().getAsString()));
         }
         if (json.get("block_displays") instanceof JsonArray displays) {
             displays.forEach(display -> artifacts.blockDisplays.add(display.getAsInt()));

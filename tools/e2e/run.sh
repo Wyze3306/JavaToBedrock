@@ -34,7 +34,7 @@ cp "$PNX_JAR" "$PNX/powernukkitx.jar"
 # Player data too: an inventory left by an earlier scenario (test items of another plugin) would change this one.
 rm -rf "$PNX/plugins" "$PNX/resource_packs" "$PNX/players"; mkdir -p "$PNX/plugins" "$PNX/resource_packs"
 case "$SCENARIO" in
-  form|ui)
+  form|ui|chest_menu)
     bash "$ROOT/src/test/pnx-plugin/build.sh" "$PNX/powernukkitx.jar" "$PNX/plugins/JtbTestPlugin.jar" > /dev/null || exit 2 ;;
   resource_pack|inventory_custom_items)
     java -cp "$CP" io.github.wyze3306.jtb.resourcepack.TestPacks "$PNX/resource_packs" || exit 2
@@ -72,6 +72,9 @@ bedrock:
   address: 127.0.0.1
   port: $PNX_PORT
   auth: offline
+features:
+  # The form scenario checks the dialogs; chest_menu checks forms shown as chests.
+  chest-menus: $([ "$SCENARIO" = form ] && echo false || echo true)
 resource-packs:
   http-bind: 127.0.0.1
   http-port: $HTTP_PORT

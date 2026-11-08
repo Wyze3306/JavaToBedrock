@@ -56,7 +56,8 @@ public final class ProxyConfig {
     public record World(int maxViewDistance, Lighting lighting, int chunkThreads) {
     }
 
-    public record Features(boolean forms, boolean customBlocks, boolean customEntities, boolean javaSkins) {
+    public record Features(boolean forms, boolean chestMenus, boolean scoreboardNumbers, boolean customBlocks, boolean customEntities,
+                           boolean javaSkins) {
     }
 
     public record Skins(boolean enabled, boolean geyserApi, String mineskinApiKey) {
@@ -97,7 +98,7 @@ public final class ProxyConfig {
                 w.integer("chunk-threads"));
 
         Section f = root.section("features");
-        this.features = new Features(f.bool("forms"), f.bool("custom-blocks"), f.bool("custom-entities"), f.bool("java-skins"));
+        this.features = new Features(f.bool("forms"), f.bool("chest-menus"), f.bool("scoreboard-numbers"), f.bool("custom-blocks"), f.bool("custom-entities"), f.bool("java-skins"));
 
         Section s = root.section("skins");
         this.skins = new Skins(s.bool("enabled"), s.bool("geyser-api"), s.string("mineskin-api-key"));

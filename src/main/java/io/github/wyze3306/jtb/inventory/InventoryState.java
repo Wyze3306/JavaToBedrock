@@ -1575,6 +1575,16 @@ public final class InventoryState implements SessionState {
      * Java client recreated its player ({@code ClientboundRespawn}: death, dimension change), which
      * empties its inventory.
      */
+    /** Java form of player inventory slot {@code slot} (0-8 hotbar, 9-35 main inventory), or null. */
+    public @Nullable ItemStack javaInventoryItem(int slot) {
+        return this.mirror.player.java(this.session, slot);
+    }
+
+    /** Whether a container screen (chest, furnace...) is open on the client. */
+    public boolean hasOpenContainer() {
+        return this.openMenu != null;
+    }
+
     public void resendAll() {
         onGameStart();
     }

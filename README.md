@@ -17,7 +17,8 @@ Java 26.3 client ──TCP──▶ JavaToBedrock ──NetherNet──▶ Power
 - Entities, equipment, mounts, player list and skins
 - Inventories, containers, crafting, creative mode, special menus
 - Chat and commands with tab completion
-- Forms, NPC dialogues and data-driven screens as native Java dialogs
+- Button forms as chest menus with icons; other forms, NPC dialogues and data-driven screens as
+  native Java dialogs
 - Scoreboards, boss bars, titles, toasts, camera
 - Sounds and particles
 - Server resource packs (encrypted ones too) converted to a Java pack: textures, custom items, blocks,
@@ -71,6 +72,8 @@ tools/e2e/run.sh path/to/powernukkitx.jar world 40   # end-to-end test against a
 ```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/DEVELOPING.md`](docs/DEVELOPING.md).
+Running a Bedrock server? [`docs/SERVERS.md`](docs/SERVERS.md) explains how to make it work well for
+Java players (HUD, menus, custom blocks).
 
 ## License
 

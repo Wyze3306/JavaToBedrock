@@ -62,6 +62,15 @@ public final class JavaAssetNames {
     }
 
     /**
+     * Item model of an image a form button may show ({@code textures/ui/shop}):
+     * {@code jtb:form_icon/<path without "textures/">}.
+     */
+    public static String formIcon(String bedrockTexture) {
+        String path = bedrockTexture.startsWith("textures/") ? bedrockTexture.substring("textures/".length()) : bedrockTexture;
+        return NAMESPACE + ":form_icon/" + path(path);
+    }
+
+    /**
      * Item model of a custom block look shown by a display entity ({@code block.CustomBlockDisplay}):
      * {@code jtb:block_display/<id>}, an item definition pointing at the block model.
      */

@@ -1,5 +1,7 @@
 package io.github.wyze3306.jtb.ui;
 
+import org.geysermc.mcprotocollib.protocol.data.game.chat.numbers.NumberFormat;
+import org.geysermc.mcprotocollib.protocol.data.game.chat.numbers.BlankFormat;
 import io.github.wyze3306.jtb.entity.EntityTracker;
 import io.github.wyze3306.jtb.player.PlayerState;
 import io.github.wyze3306.jtb.session.ProxySession;
@@ -115,10 +117,10 @@ public final class ScoreboardState implements SessionState {
         if (objective == null) {
             objective = new Objective(name, displayName);
             this.objectives.put(name, objective);
-            this.session.sendJava(new ClientboundSetObjectivePacket(name, ObjectiveAction.ADD, displayName, ScoreType.INTEGER, null));
+            this.session.sendJava(new ClientboundSetObjectivePacket(name, ObjectiveAction.ADD, displayName, ScoreType.INTEGER, numberFormat()));
         } else if (!objective.displayName.equals(displayName)) {
             objective.displayName = displayName;
-            this.session.sendJava(new ClientboundSetObjectivePacket(name, ObjectiveAction.UPDATE, displayName, ScoreType.INTEGER, null));
+            this.session.sendJava(new ClientboundSetObjectivePacket(name, ObjectiveAction.UPDATE, displayName, ScoreType.INTEGER, numberFormat()));
         }
         if (position == ScoreboardPosition.SIDEBAR) {
             boolean ascending = packet.getSortOrder() == ObjectiveSortOrder.ASCENDING;
@@ -204,6 +206,11 @@ public final class ScoreboardState implements SessionState {
         }
     }
 
+    /** {@link BlankFormat} when the configuration hides the scores ({@code features.scoreboard-numbers: false}), else null. */
+    private @Nullable NumberFormat numberFormat() {
+        return this.session.config().features().scoreboardNumbers() ? null : BlankFormat.INSTANCE;
+    }
+
     private void removeLine(Objective objective, long id) {
         Line line = objective.lines.remove(id);
         if (line != null) {
@@ -216,7 +223,7 @@ public final class ScoreboardState implements SessionState {
         ClientboundSetScorePacket packet;
         if (objective.ascending) {
             packet = new ClientboundSetScorePacket(line.holder(), objective.name, negate(line.value()))
-                    .withNumberFormat(new FixedFormat(Component.text(line.value(), NamedTextColor.RED)));
+                    .withNumberFormat(numberFormat() != null ? numberFormat() : new FixedFormat(Component.text(line.value(), NamedTextColor.RED)));
         } else {
             packet = new ClientboundSetScorePacket(line.holder(), objective.name, line.value());
         }

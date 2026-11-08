@@ -100,6 +100,12 @@ world:
 features:
   # Affiche les formulaires Bedrock avec les dialogues natifs de Java 26.3.
   forms: true
+  # Les formulaires à boutons (et les formulaires oui/non) s'ouvrent en menus coffre, un objet par
+  # bouton avec l'image du bouton : la présentation habituelle des menus sur Java. false = dialogues.
+  chest-menus: true
+  # Affiche les scores (chiffres rouges) du tableau latéral. false les masque, comme le font les packs
+  # d'interface des serveurs Bedrock qui se servent du tableau comme d'un HUD.
+  scoreboard-numbers: true
   # Affiche les blocs custom avec des états de blocs Java re-texturés.
   custom-blocks: true
   # Affiche les entités custom avec des modèles convertis (item_display).

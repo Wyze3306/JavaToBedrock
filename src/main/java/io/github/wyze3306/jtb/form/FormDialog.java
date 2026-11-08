@@ -9,7 +9,7 @@ import org.jspecify.annotations.Nullable;
  * A Bedrock form ({@code ModalFormRequest}, or a server settings form) shown as a dialog; answered
  * with {@code ModalFormResponse} under the form's id.
  */
-final class FormDialog extends ShownDialog {
+class FormDialog extends ShownDialog {
 
     private final FormState state;
     final int formId;

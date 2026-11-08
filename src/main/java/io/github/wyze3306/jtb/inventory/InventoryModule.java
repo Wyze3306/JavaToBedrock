@@ -1,5 +1,6 @@
 package io.github.wyze3306.jtb.inventory;
 
+import io.github.wyze3306.jtb.form.FormState;
 import io.github.wyze3306.jtb.item.ItemMappings;
 import io.github.wyze3306.jtb.translator.TranslatorModule;
 import io.github.wyze3306.jtb.translator.TranslatorRegistry;
@@ -75,8 +76,17 @@ public final class InventoryModule implements TranslatorModule {
         registry.bedrock(PlayerArmorDamagePacket.class, (s, p) -> { });
 
         // ---------------------------------------------------------------- Java -> Bedrock
-        registry.java(ServerboundContainerClickPacket.class, (s, p) -> s.get(InventoryState.KEY).onClick(p));
-        registry.java(ServerboundContainerClosePacket.class, (s, p) -> s.get(InventoryState.KEY).onClose(p.getContainerId()));
+        // Chest menus (forms shown as chests) belong to the form module.
+        registry.java(ServerboundContainerClickPacket.class, (s, p) -> {
+            if (!s.get(FormState.KEY).onMenuClick(p.getContainerId(), p.getSlot())) {
+                s.get(InventoryState.KEY).onClick(p);
+            }
+        });
+        registry.java(ServerboundContainerClosePacket.class, (s, p) -> {
+            if (!s.get(FormState.KEY).onMenuClosed(p.getContainerId())) {
+                s.get(InventoryState.KEY).onClose(p.getContainerId());
+            }
+        });
         registry.java(ServerboundContainerButtonClickPacket.class,
                 (s, p) -> s.get(InventoryState.KEY).onButtonClick(p.getContainerId(), p.getButtonId()));
         registry.java(ServerboundContainerSlotStateChangedPacket.class,
