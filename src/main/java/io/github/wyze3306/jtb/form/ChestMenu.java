@@ -53,10 +53,25 @@ final class ChestMenu extends FormDialog {
     /** Whether a form can be a chest menu: buttons only (labels allowed), and at most 6 rows. */
     static boolean fits(BedrockForm form) {
         return switch (form) {
-            case BedrockForm.Simple simple -> simple.buttonCount() > 0 && rows(simple) <= 6;
+            case BedrockForm.Simple simple -> shownButtons(simple) > 0 && rows(simple) <= 6;
             case BedrockForm.Modal ignored -> true;
             case BedrockForm.Custom ignored -> false;
         };
+    }
+
+    /** Buttons without text nor image are layout fillers of UI packs: not shown (their index still counts). */
+    private static boolean shown(BedrockForm.Button button) {
+        return !button.text().isBlank() || button.imageData() != null && !button.imageData().isBlank();
+    }
+
+    private static int shownButtons(BedrockForm.Simple simple) {
+        int count = 0;
+        for (BedrockForm.SimpleElement element : simple.elements()) {
+            if (element instanceof BedrockForm.Button button && shown(button)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static boolean hasInfo(BedrockForm.Simple simple) {
@@ -72,7 +87,7 @@ final class ChestMenu extends FormDialog {
     }
 
     private static int rows(BedrockForm.Simple simple) {
-        return (simple.buttonCount() + 8) / 9 + (hasInfo(simple) ? 1 : 0);
+        return (shownButtons(simple) + 8) / 9 + (hasInfo(simple) ? 1 : 0);
     }
 
     /** Opens (or redraws) the menu on the client. */
@@ -108,9 +123,12 @@ final class ChestMenu extends FormDialog {
                 int button = 0;
                 for (BedrockForm.SimpleElement element : simple.elements()) {
                     if (element instanceof BedrockForm.Button b) {
-                        slots.set(next, item(session, null, b, b.text(), null, text));
-                        buttonSlots.set(next, button++);
-                        next++;
+                        if (shown(b)) {
+                            slots.set(next, item(session, null, b, b.text(), null, text));
+                            buttonSlots.set(next, button);
+                            next++;
+                        }
+                        button++;
                     }
                 }
             }

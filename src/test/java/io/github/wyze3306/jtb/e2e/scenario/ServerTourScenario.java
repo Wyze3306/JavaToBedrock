@@ -92,6 +92,9 @@ public final class ServerTourScenario implements E2eScenario {
     private final Set<String> bossBars = ConcurrentHashMap.newKeySet();
     private final Set<String> screens = ConcurrentHashMap.newKeySet();
     private final AtomicInteger actionBars = new AtomicInteger();
+    private final Set<String> actionBarTexts = ConcurrentHashMap.newKeySet();
+    /** Sidebar lines by score holder: [score, text]. */
+    private final Map<String, Object[]> sidebar = new ConcurrentHashMap<>();
 
     public ServerTourScenario() {
         String list = System.getProperty("commands", "");
@@ -171,8 +174,16 @@ public final class ServerTourScenario implements E2eScenario {
             }
         } else if (packet instanceof ClientboundSetTitleTextPacket title && title.getText() != null) {
             this.titles.add(plain(title.getText()));
-        } else if (packet instanceof ClientboundSetActionBarTextPacket) {
+        } else if (packet instanceof ClientboundSetActionBarTextPacket bar) {
             this.actionBars.incrementAndGet();
+            if (this.actionBarTexts.size() < 20) {
+                this.actionBarTexts.add(plain(bar.getText()));
+            }
+        } else if (packet instanceof org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.scoreboard.ClientboundSetScorePacket score) {
+            Object display = score.getDisplay();
+            this.sidebar.put(score.getOwner(), new Object[]{score.getValue(), display == null ? score.getOwner() : plain(display)});
+        } else if (packet instanceof org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.scoreboard.ClientboundResetScorePacket reset) {
+            this.sidebar.remove(reset.getOwner());
         } else if (packet instanceof ClientboundSetObjectivePacket objective && objective.getDisplayName() != null) {
             this.objectives.add(plain(objective.getDisplayName()));
         } else if (packet instanceof ClientboundBossEventPacket boss && boss.getTitle() != null) {
@@ -303,7 +314,12 @@ public final class ServerTourScenario implements E2eScenario {
         context.log("Display entity models (" + this.displayModels.size() + "): " + this.displayModels);
         context.log("Custom sounds (" + this.customSounds.size() + "): " + this.customSounds + ", builtin sounds: " + this.builtinSounds);
         context.log("Dialogs (" + this.dialogs.size() + "): " + this.dialogs);
-        context.log("Titles: " + this.titles + ", action bars: " + this.actionBars);
+        context.log("Titles: " + this.titles + ", action bars: " + this.actionBars + " " + this.actionBarTexts);
+        java.util.List<Object[]> lines = new java.util.ArrayList<>(this.sidebar.values());
+        lines.sort(java.util.Comparator.comparingInt(line -> -((Number) line[0]).intValue()));
+        for (Object[] line : lines) {
+            context.log("Sidebar " + line[0] + ": " + line[1]);
+        }
         context.log("Scoreboards: " + this.objectives + ", boss bars: " + this.bossBars + ", screens: " + this.screens);
         context.check("every custom item of the final inventory has its pack model", missing.isEmpty());
         context.check("every dialog has a button", this.dialogsWithoutButtons.get() == 0);

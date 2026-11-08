@@ -121,6 +121,10 @@ public final class BedrockText {
                     i++;
                     continue;
                 }
+                // Bedrock hides a "§" and the character after it even when the code means nothing
+                // (servers use such codes as invisible markers for their UI packs).
+                i++;
+                continue;
             }
             current.append(c);
         }

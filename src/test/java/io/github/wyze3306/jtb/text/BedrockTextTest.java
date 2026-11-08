@@ -20,6 +20,12 @@ class BedrockTextTest {
     }
 
     @Test
+    void unknownCodesAreHiddenLikeOnBedrock() {
+        // UI packs use codes Bedrock does not know as invisible markers ("§w", "§x").
+        assertEquals("Store", BedrockText.plain(BedrockText.legacyToComponent("§w§x§r§fStore")));
+    }
+
+    @Test
     void javaColoursAndDecorations() {
         Component component = BedrockText.legacyToComponent("§cred §lbold");
         assertEquals("red bold", BedrockText.plain(component));
