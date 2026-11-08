@@ -11,8 +11,15 @@ java -jar build/libs/JavaToBedrock.jar        # writes config.yml on first start
 ```
 
 Java 21. Dependencies: MCProtocolLib 26.3 (Java side), PowerNukkitX Protocol
-`3.0.0.Beta7-Debug-SNAPSHOT` + CloudburstMC RakNet `2.0.0.CR4` (Bedrock side) — the exact versions the
-PowerNukkitX server uses.
+`3.0.0.Beta7-Debug-SNAPSHOT` + the CloudburstMC RakNet transport it requires (Bedrock side). The protocol
+is a moving snapshot and its repository keeps only the latest build: an upstream API change can break
+the build without any change here (the 2026-11-07 build moved camera instructions to
+`data.camera.instruction` and the RakNet transport to its `1.1.0.CR4` line). The wire format the proxy
+speaks is the codec it picks (`network.bedrock.BedrockCodecs`), not the library version.
+
+PowerNukkitX itself moved on: its `beta` branch (Bedrock 1.26.60, protocol 2225) only listens on
+NetherNet (WebRTC), no longer on RakNet, so the proxy reaches the 1.26.50 RakNet servers (the
+JavaToBedrock fork of PowerNukkitX, BDS, other software) and RakNet servers on 1.26.60.
 
 ## End-to-end test
 
@@ -35,7 +42,8 @@ tools/e2e/run.sh path/to/powernukkitx.jar world 40
 Scenarios (`foo_bar` = `FooBarScenario`): `default`, `world`, `world_travel`, `player`, `entity`,
 `chat`, `form`, `ui`, `sound`, `resource_pack`, `inventory`, `item_frame`... Some need server-side helpers: `form`/`ui`
 use the test plugin in `src/test/pnx-plugin`, `resource_pack` packs in the server's `resource_packs/`,
-`reconnect` a server restart during the run, `server_switch` a second server
+`PNX_JAVA=/path/to/java` runs the server with another Java than the proxy (recent PowerNukkitX builds need
+Java 25). `reconnect` a server restart during the run, `server_switch` a second server
 (`JTB_BEDROCK_SERVERS=bis=host:port`), `peers` a second client named `Load1`.
 
 ## Rules

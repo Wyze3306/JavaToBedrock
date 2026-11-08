@@ -44,8 +44,10 @@ bedrock:
   # Copiez la clé publique affichée au démarrage dans pnx.yml
   # (network-settings.java-bridge.proxyPublicKeys).
   trusted-key-file: jtb-proxy-key.pem
-  # Préfixe ajouté au pseudo Bedrock des joueurs Java (ex: "." pour éviter les doublons).
-  username-prefix: ""
+  # Préfixe ajouté au pseudo Bedrock des joueurs Java (ex: "." pour éviter les doublons avec les
+  # gamertags Xbox). "auto" : "." en mode trusted (PowerNukkitX exige le préfixe de
+  # java-bridge.namePrefix, "." par défaut), aucun préfixe sinon.
+  username-prefix: auto
   # Délai de connexion au serveur Bedrock (secondes).
   connect-timeout: 10
   # Langue envoyée au serveur Bedrock si le client Java n'en a pas encore donné.

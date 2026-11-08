@@ -35,6 +35,17 @@ class ProxyConfigTest {
         assertEquals(ProxyConfig.AuthMode.TRUSTED, config.bedrock().auth());
         assertEquals(ProxyConfig.Lighting.FULL_BRIGHT, config.world().lighting());
         assertEquals(25565, config.java().port());
+        assertEquals(".", config.bedrock().usernamePrefix(), "auto prefix in trusted mode");
+    }
+
+    @Test
+    void usernamePrefixAutoFollowsTheAuthMode() {
+        assertEquals("", ProxyConfig.defaults().bedrock().usernamePrefix());
+        assertEquals(".", ProxyConfig.usernamePrefix("auto", ProxyConfig.AuthMode.TRUSTED));
+        assertEquals("", ProxyConfig.usernamePrefix("AUTO", ProxyConfig.AuthMode.OFFLINE));
+        assertEquals("", ProxyConfig.usernamePrefix("auto", ProxyConfig.AuthMode.MICROSOFT));
+        assertEquals("", ProxyConfig.usernamePrefix("", ProxyConfig.AuthMode.TRUSTED));
+        assertEquals("J_", ProxyConfig.usernamePrefix("J_", ProxyConfig.AuthMode.OFFLINE));
     }
 
     @Test

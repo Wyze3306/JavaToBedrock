@@ -13,9 +13,14 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.TextColor;
 import org.cloudburstmc.math.vector.Vector3d;
 import org.cloudburstmc.math.vector.Vector3f;
-import org.cloudburstmc.protocol.bedrock.data.camera.CameraFadeInstruction;
 import org.cloudburstmc.protocol.bedrock.data.camera.CameraPreset;
-import org.cloudburstmc.protocol.bedrock.data.camera.CameraSetInstruction;
+import org.cloudburstmc.protocol.bedrock.data.camera.instruction.CameraFadeInstruction;
+import org.cloudburstmc.protocol.bedrock.data.camera.instruction.CameraInstruction;
+import org.cloudburstmc.protocol.bedrock.data.camera.instruction.CameraSetInstruction;
+import org.cloudburstmc.protocol.bedrock.data.camera.instruction.ColorOption;
+import org.cloudburstmc.protocol.bedrock.data.camera.instruction.EaseOption;
+import org.cloudburstmc.protocol.bedrock.data.camera.instruction.TimeOption;
+import org.cloudburstmc.protocol.common.util.OptionalBoolean;
 import org.cloudburstmc.protocol.bedrock.packet.CameraInstructionPacket;
 import org.cloudburstmc.protocol.bedrock.packet.CameraPresetsPacket;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.EntityMetadata;
@@ -84,17 +89,21 @@ public final class CameraState implements SessionState {
     }
 
     public void onInstruction(CameraInstructionPacket packet) {
-        if (packet.getClear().isPresent() && packet.getClear().getAsBoolean()) {
+        CameraInstruction instruction = packet.getCameraInstruction();
+        if (instruction == null) {
+            return;
+        }
+        if (isTrue(instruction.getClear())) {
             resetView();
         }
-        if (packet.getFadeInstruction() != null) {
-            fade(packet.getFadeInstruction());
+        if (instruction.getFade() != null) {
+            fade(instruction.getFade());
         }
-        if (packet.getSetInstruction() != null) {
-            set(packet.getSetInstruction());
+        if (instruction.getSet() != null) {
+            set(instruction.getSet());
         }
-        if (packet.getAttachToEntityInstruction() != null) {
-            long target = packet.getAttachToEntityInstruction().getEntityActorID();
+        if (instruction.getAttachToEntity() != null) {
+            long target = instruction.getAttachToEntity().getEntityActorID();
             int javaId = this.session.get(EntityTracker.KEY).javaId(target);
             if (javaId >= 0) {
                 removeCameraEntity();
@@ -102,9 +111,13 @@ public final class CameraState implements SessionState {
                 this.session.sendJava(new ClientboundSetCameraPacket(javaId));
             }
         }
-        if (packet.getDetachFromEntity().isPresent() && packet.getDetachFromEntity().getAsBoolean()) {
+        if (isTrue(instruction.getDetachFromEntity())) {
             resetView();
         }
+    }
+
+    private static boolean isTrue(@Nullable OptionalBoolean value) {
+        return value != null && value.isPresent() && value.getAsBoolean();
     }
 
     private void set(CameraSetInstruction instruction) {
@@ -116,7 +129,7 @@ public final class CameraState implements SessionState {
         CameraPreset preset = presetName == null ? null : this.presets.get(presetName);
         PlayerState player = this.session.get(PlayerState.KEY);
 
-        Vector3f position = instruction.getPos();
+        Vector3f position = instruction.getPos() == null ? null : instruction.getPos().getPos();
         if (position == null && preset != null && !FREE.equals(presetName)) {
             position = inherited(preset, CameraPreset::getPos);
         }
@@ -129,8 +142,8 @@ public final class CameraState implements SessionState {
         if (instruction.getRot() != null) {
             pitch = instruction.getRot().getX();
             yaw = instruction.getRot().getY();
-        } else if (instruction.getFacing() != null) {
-            Vector3f direction = instruction.getFacing().sub(position);
+        } else if (instruction.getFacing() != null && instruction.getFacing().getPos() != null) {
+            Vector3f direction = instruction.getFacing().getPos().sub(position);
             double horizontal = Math.sqrt(direction.getX() * direction.getX() + direction.getZ() * direction.getZ());
             yaw = (float) Math.toDegrees(Math.atan2(-direction.getX(), direction.getZ()));
             pitch = (float) Math.toDegrees(-Math.atan2(direction.getY(), horizontal));
@@ -143,7 +156,7 @@ public final class CameraState implements SessionState {
 
         int dimension = this.session.get(WorldState.KEY).dimension();
         if (this.cameraEntity >= 0 && this.cameraDimension == dimension) {
-            CameraSetInstruction.EaseOption ease = instruction.getEase();
+            EaseOption ease = instruction.getEase();
             int ticks = ease == null ? 0 : Math.max(0, Math.min(59, Math.round(ease.getTime() * 20f)));
             this.session.sendJava(new ClientboundSetEntityDataPacket(this.cameraEntity,
                     new EntityMetadata<?, ?>[]{new IntEntityMetadata(TELEPORT_DURATION_INDEX, MetadataTypes.INT, ticks)}));
@@ -192,8 +205,8 @@ public final class CameraState implements SessionState {
             this.session.logger().debug("[{}] Camera fade skipped: no overlay glyph in the resource pack", this.session.getName());
             return;
         }
-        CameraFadeInstruction.TimeOption time = fade.getTime();
-        CameraFadeInstruction.ColorOption color = fade.getColor();
+        TimeOption time = fade.getTime();
+        ColorOption color = fade.getColor();
         int fadeIn = time == null ? 10 : seconds(time.getFadeInTime());
         int hold = time == null ? 20 : seconds(time.getHoldTime());
         int fadeOut = time == null ? 10 : seconds(time.getFadeOutTime());

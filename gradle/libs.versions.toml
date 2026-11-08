@@ -8,8 +8,9 @@ minecraftauth = "5.0.0"
 # sound events).
 bedrock-protocol = "3.0.0.Beta7-Debug-SNAPSHOT"
 netty = "4.2.17.Final"
-# Same RakNet transport as the PowerNukkitX server
-raknet = "2.0.0.CR4-20260922.202324-5"
+# The RakNet transport the protocol snapshot requires (its 1.1.0.CR4 line since the 2026-11-07 build),
+# pinned to a timestamp the opencollab repository keeps
+raknet = "1.1.0.CR4-20261103.123906-3"
 fastutil = "8.5.19"
 adventure = "5.2.0"
 gson = "2.14.0"

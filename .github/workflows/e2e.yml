@@ -6,9 +6,12 @@ name: End-to-end
 on:
   workflow_dispatch:
     inputs:
+      pnx_repo:
+        description: PowerNukkitX repository with the JavaToBedrock companion features
+        default: Wyze3306/PowerNukkitX
       pnx_ref:
-        description: PowerNukkitX branch, tag or commit (Wyze3306/PowerNukkitX)
-        default: ccr-80c30af5-ygsiz9
+        description: PowerNukkitX branch, tag or commit
+        default: jtb-java-bridge
   pull_request:
   push:
     branches: [main, master, ccr-80c30af5-ygsiz9]
@@ -26,8 +29,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: Wyze3306/PowerNukkitX
-          ref: ${{ inputs.pnx_ref || 'ccr-80c30af5-ygsiz9' }}
+          repository: ${{ inputs.pnx_repo || 'Wyze3306/PowerNukkitX' }}
+          ref: ${{ inputs.pnx_ref || 'jtb-java-bridge' }}
           path: pnx-src
           submodules: recursive
       - uses: actions/setup-java@v4

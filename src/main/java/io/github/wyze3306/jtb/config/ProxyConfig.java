@@ -78,9 +78,9 @@ public final class ProxyConfig {
                 j.integer("compression-threshold"), j.string("motd"), j.integer("max-players"));
 
         Section b = root.section("bedrock");
-        this.bedrock = new Bedrock(b.string("address"), b.integer("port"),
-                AuthMode.valueOf(b.string("auth").toUpperCase(Locale.ROOT)), b.string("trusted-key-file"),
-                b.string("username-prefix"), b.integer("connect-timeout"), b.string("default-language"),
+        AuthMode auth = AuthMode.valueOf(b.string("auth").toUpperCase(Locale.ROOT));
+        this.bedrock = new Bedrock(b.string("address"), b.integer("port"), auth, b.string("trusted-key-file"),
+                usernamePrefix(b.string("username-prefix"), auth), b.integer("connect-timeout"), b.string("default-language"),
                 b.bool("follow-transfers"),
                 new Reconnect(b.section("reconnect").integer("timeout"), b.section("reconnect").strings("shutdown-messages")),
                 b.stringMap("servers"), b.stringMap("forced-hosts"));
@@ -102,6 +102,18 @@ public final class ProxyConfig {
 
         Section d = root.section("debug");
         this.debug = new Debug(d.bool("log-unhandled-bedrock"), d.bool("log-unhandled-java"));
+    }
+
+    /**
+     * The prefix of the Bedrock names of Java players. {@code auto} is {@code "."} in trusted mode, the
+     * default {@code java-bridge.namePrefix} PowerNukkitX requires (Java names and Xbox gamertags share
+     * one namespace, a gamertag never contains a dot), and no prefix otherwise.
+     */
+    static String usernamePrefix(String configured, AuthMode auth) {
+        if (configured.equalsIgnoreCase("auto")) {
+            return auth == AuthMode.TRUSTED ? "." : "";
+        }
+        return configured;
     }
 
     /**

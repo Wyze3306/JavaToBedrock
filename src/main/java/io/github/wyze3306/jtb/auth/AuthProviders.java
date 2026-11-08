@@ -28,6 +28,10 @@ public final class AuthProviders {
                 if (!config.java().onlineMode()) {
                     LOGGER.warn("Trusted mode with java.online-mode=false: the server will trust unverified Java names!");
                 }
+                if (config.bedrock().usernamePrefix().isEmpty()) {
+                    LOGGER.warn("Trusted mode without bedrock.username-prefix: PowerNukkitX refuses Java names that do not start"
+                            + " with its java-bridge.namePrefix (\".\" by default) unless that setting is empty too");
+                }
                 yield new TrustedAuthProvider(key, config.java().onlineMode());
             }
             case MICROSOFT -> new MicrosoftAuthProvider(proxy);

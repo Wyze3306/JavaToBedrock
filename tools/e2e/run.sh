@@ -7,7 +7,8 @@
 # headless player is op), starts it, starts the proxy in front of it, runs the headless Java client
 # with the scenario (src/test/java/.../e2e/scenario, "foo_bar" = FooBarScenario) and prints its report.
 # Exit code: the client's (0 when every check passed). Logs: build/e2e/{pnx,proxy,client}.log
-# GRADLE=/path/to/gradle overrides the wrapper; PNX_PORT, JAVA_PORT, HTTP_PORT override the ports.
+# GRADLE=/path/to/gradle overrides the wrapper; PNX_PORT, JAVA_PORT, HTTP_PORT override the ports;
+# PNX_JAVA=/path/to/java runs PowerNukkitX with another Java (recent builds need Java 25).
 set -uo pipefail
 PNX_JAR=$(realpath "${1:?usage: run.sh <powernukkitx.jar> [scenario] [seconds]}")
 SCENARIO=${2:-default}; SECONDS_TO_PLAY=${3:-30}
@@ -30,7 +31,7 @@ CP=$(cd "$ROOT" && "$GRADLE" -q -I "$INIT" printTestClasspath | tail -1)
 
 cp "$PNX_JAR" "$PNX/powernukkitx.jar"
 start_pnx() {
-  (cd "$PNX" && exec java -Xmx1500m -Dfile.encoding=UTF-8 --add-opens java.base/java.lang=ALL-UNNAMED \
+  (cd "$PNX" && exec "${PNX_JAVA:-java}" -Xmx1500m -Dfile.encoding=UTF-8 --add-opens java.base/java.lang=ALL-UNNAMED \
       --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED \
       -jar powernukkitx.jar --skip-setup --accept-license --language=eng --disable-ansi < /dev/null >> "$OUT/pnx.log" 2>&1) &
   pids+=($!)

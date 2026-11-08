@@ -78,11 +78,16 @@ avec sa propre clé ; PowerNukkitX vérifie la signature et la liaison à la cl�
        - "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE..."   # la clé affichée par le proxy
        requireOnlineMode: true
        maxClockSkewSeconds: 60
+       namePrefix: "."
    ```
    (PowerNukkitX écrit cette section avec ses valeurs par défaut au premier démarrage ; les clés
    sont en camelCase comme le reste de `pnx.yml`.) Le chiffrement réseau de PNX doit rester activé
    (`network-settings.networkEncryption: true`, valeur par défaut).
-3. Les plugins peuvent reconnaître ces joueurs : `player.isJavaEditionPlayer()` et
+3. Les pseudos des joueurs Java commencent par `namePrefix` (« . » par défaut, caractère absent des
+   gamertags Xbox) : sans lui, un compte Java pourrait prendre le nom, les droits et les données d'un
+   joueur Bedrock. Le proxy l'ajoute de lui-même en mode `trusted` (`bedrock.username-prefix: auto`) ;
+   si vous changez `namePrefix`, mettez la même valeur dans `bedrock.username-prefix`.
+4. Les plugins peuvent reconnaître ces joueurs : `player.isJavaEditionPlayer()` et
    `player.getJavaIdentity()` (UUID et pseudo du compte Java). Leur UUID PNX est leur UUID Java.
 
 ## Plusieurs serveurs Bedrock
